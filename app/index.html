@@ -11,6 +11,7 @@
 <header class="topbar">
   <div class="brand"><span class="brand-mark">◈</span> VICE STATE <em>cover art studio</em></div>
   <div class="top-actions">
+    <button id="load-samples" class="btn ghost">Load sample photos</button>
     <label class="field"><span>Size</span>
       <select id="size">
         <option value="1920 x 1080" selected>1920 × 1080</option>
@@ -25,7 +26,7 @@
 <main class="studio">
   <section class="stage">
     <canvas id="preview" width="1920" height="1080"></canvas>
-    <p class="hint">Drag on the cover to reposition the active panel's photo · click a panel thumbnail to pick its photo</p>
+    <p class="hint">Drag on the cover to reposition the active panel's photo · mouse wheel zooms · <kbd>[</kbd>/<kbd>]</kbd> pick a panel · <kbd>R</kbd> reshuffles the sky · <kbd>E</kbd> exports</p>
   </section>
 
   <aside class="controls">
@@ -33,11 +34,13 @@
     <label class="field"><span>Title</span><input id="title" value="VICE STATE" maxlength="18"></label>
     <label class="field"><span>Subtitle</span><input id="subtitle" value="Neon Tide" maxlength="24"></label>
     <label class="field"><span>Tagline (footer)</span><input id="tagline" value="One coast · No rules · Coming soon"></label>
+    <label class="field"><span>Critic quote</span><input id="quote" value="A fever dream in neon"></label>
 
     <h2>Look</h2>
     <label class="field"><span>Colour grade</span>
       <select id="palette">
         <option value="sunset" selected>Sunset Boulevard</option>
+        <option value="dawn">Pastel Dawn</option>
         <option value="neon">Neon Nights</option>
         <option value="vice">Vice Cyan</option>
         <option value="midnight">Midnight Purple</option>
@@ -48,6 +51,7 @@
         <option value="hero" selected>Hero — 1 big + 4</option>
         <option value="widescreen">Wide — 1 big + 5</option>
         <option value="grid5">Mosaic — 6 panels (portrait)</option>
+        <option value="collage">Collage — 6 panels (square)</option>
       </select>
     </label>
     <label class="field"><span>Wanted stars</span><input id="stars" type="range" min="0" max="5" value="5"></label>
@@ -59,5 +63,7 @@
     <input type="file" id="file-input" accept="image/*" hidden>
   </aside>
 </main>
+
+<div id="toast" class="toast" role="status"></div>
 </body>
 </html>

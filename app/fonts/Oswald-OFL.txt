@@ -1,3 +1,4 @@
+# Oswald — shipped verbatim with the Vice State app. Font copyright its authors; see SIL Open Font License 1.1 below.
 Copyright 2016 The Oswald Project Authors (https://github.com/googlefonts/OswaldFont)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.

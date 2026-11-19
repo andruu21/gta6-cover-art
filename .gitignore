@@ -1,1 +1,4 @@
+# dossier build output (node main.ts with MAKEFUN_OUTPUT_DIR=out)
 out/
+# node tooling if used locally
+node_modules/
