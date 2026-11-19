@@ -2,22 +2,62 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<title>Vice State — GTA-style Cover Art Maker</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cover Snap</title>
-<link rel="stylesheet" href="./style.css">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="src/main.js"></script>
 </head>
 <body>
-<main class="app">
-  <section class="controls">
-    <h1>Cover Snap</h1>
-    <p>A photo and a caption, made into a square cover.</p>
-    <label>Photo <input id="photo" type="file" accept="image/*"></label>
-    <label>Caption <input id="caption" type="text" maxlength="40" value="Sunset Heist"></label>
-    <button id="export" type="button">Export PNG 1080 x 1080</button>
-    <p id="status" role="status"></p>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark">◈</span> VICE STATE <em>cover art studio</em></div>
+  <div class="top-actions">
+    <label class="field"><span>Size</span>
+      <select id="size">
+        <option value="1920 x 1080" selected>1920 × 1080</option>
+        <option value="1080 x 1350">1080 × 1350</option>
+        <option value="1080 x 1080">1080 × 1080</option>
+      </select>
+    </label>
+    <button id="export" class="btn primary">Export PNG</button>
+  </div>
+</header>
+
+<main class="studio">
+  <section class="stage">
+    <canvas id="preview" width="1920" height="1080"></canvas>
+    <p class="hint">Drag on the cover to reposition the active panel's photo · click a panel thumbnail to pick its photo</p>
   </section>
-  <canvas id="cover" width="1080" height="1080" aria-label="The cover"></canvas>
+
+  <aside class="controls">
+    <h2>Caption</h2>
+    <label class="field"><span>Title</span><input id="title" value="VICE STATE" maxlength="18"></label>
+    <label class="field"><span>Subtitle</span><input id="subtitle" value="Neon Tide" maxlength="24"></label>
+    <label class="field"><span>Tagline (footer)</span><input id="tagline" value="One coast · No rules · Coming soon"></label>
+
+    <h2>Look</h2>
+    <label class="field"><span>Colour grade</span>
+      <select id="palette">
+        <option value="sunset" selected>Sunset Boulevard</option>
+        <option value="neon">Neon Nights</option>
+        <option value="vice">Vice Cyan</option>
+        <option value="midnight">Midnight Purple</option>
+      </select>
+    </label>
+    <label class="field"><span>Panel layout</span>
+      <select id="template">
+        <option value="hero" selected>Hero — 1 big + 4</option>
+        <option value="widescreen">Wide — 1 big + 5</option>
+        <option value="grid5">Mosaic — 6 panels (portrait)</option>
+      </select>
+    </label>
+    <label class="field"><span>Wanted stars</span><input id="stars" type="range" min="0" max="5" value="5"></label>
+    <button id="reshuffle" class="btn">Reshuffle sky</button>
+
+    <h2>Panels</h2>
+    <div id="panel-strip" class="panel-strip"></div>
+    <button id="add-photo" class="btn">Add photo to active panel</button>
+    <input type="file" id="file-input" accept="image/*" hidden>
+  </aside>
 </main>
-<script type="module" src="./src/main.js"></script>
 </body>
 </html>
