@@ -1,8 +1,16 @@
 // The editor: photo loading per panel, crop/position, caption, sizes, live
 // preview, PNG export. State is a plain object handed straight to the renderer
 // in cover.js; every control writes it and re-renders on the next frame.
+//
+// v4: the poster persists to localStorage, so a reload brings back exactly what
+// you were working on (photo files themselves cannot be stored, so panels keep
+// their sky art until you re-pick them — captions, zoom, offset and look all
+// come back). Double-click a panel on the canvas to reset its zoom/offset, and
+// a new "Random poster" button shuffles palette + seed + template at once.
 
 import { renderCover, exportPNG, SIZES, TEMPLATES, PALETTE_NAMES } from "./cover.js";
+
+const STORE_KEY = "vice-state-poster-v4";
 
 const state = {
   title: "VICE STATE",
@@ -23,6 +31,48 @@ const toast = document.getElementById("toast");
 let activePanel = 0;
 let toastTimer = null;
 
+// ---------- persistence (localStorage; images are not storable, so photo
+// bitmaps are dropped but every text/look/crop setting survives a reload) ----------
+function saveState() {
+  try {
+    const plain = {
+      ...state,
+      photos: state.photos.map(ph => ({ zoom: ph.zoom, ox: ph.ox, oy: ph.oy, label: ph.label || "", time: ph.time || "", src: null })),
+    };
+    localStorage.setItem(STORE_KEY, JSON.stringify(plain));
+  } catch {}
+}
+
+function restoreState() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved !== "object") return false;
+    for (const key of ["title", "subtitle", "tagline", "quote", "palette", "template", "size"]) {
+      if (typeof saved[key] === "string") state[key] = saved[key];
+    }
+    if (Number.isFinite(saved.stars)) state.stars = Math.min(5, Math.max(0, saved.stars));
+    if (Number.isFinite(saved.seed)) state.seed = saved.seed >>> 0;
+    if (Array.isArray(saved.photos)) {
+      state.photos = saved.photos.map((ph, i) => ({
+        img: null, src: null, seed: i + 3,
+        zoom: Number.isFinite(ph.zoom) ? ph.zoom : 1,
+        ox: Number.isFinite(ph.ox) ? ph.ox : 0,
+        oy: Number.isFinite(ph.oy) ? ph.oy : 0,
+        label: ph.label || "", time: ph.time || "",
+      }));
+    }
+    return true;
+  } catch { return false; }
+}
+
+function reflectStateToControls() {
+  const set = (id, prop) => { const el = document.getElementById(id); if (el) el.value = state[prop]; };
+  set("title", "title"); set("subtitle", "subtitle"); set("tagline", "tagline"); set("quote", "quote");
+  set("stars", "stars"); set("palette", "palette"); set("template", "template"); set("size", "size");
+}
+
 function ensurePhotos(n) {
   while (state.photos.length < n) {
     state.photos.push({ img: null, src: null, zoom: 1, ox: 0, oy: 0, label: "", time: "", seed: state.photos.length + 3 });
@@ -38,7 +88,7 @@ function showToast(msg) {
 }
 
 function schedule() {
-  requestAnimationFrame(() => renderCover(canvas, state));
+  requestAnimationFrame(() => renderCover(canvas, state).then(saveState));
 }
 
 // ---------- panel strip ----------
@@ -75,6 +125,13 @@ function buildPanelStrip() {
     zoomIn.value = String(ph.zoom);
     zoom.appendChild(zoomLabel);
     zoom.appendChild(zoomIn);
+    // v4: reset button per panel — same undo as double-clicking the canvas
+    const resetBtn = document.createElement("button");
+    resetBtn.className = "btn mini reset-btn";
+    resetBtn.type = "button";
+    resetBtn.textContent = "⟲ Reset";
+    resetBtn.addEventListener("click", (e) => { e.stopPropagation(); resetPanelCrop(i); });
+    zoom.appendChild(resetBtn);
     card.appendChild(thumb);
     card.appendChild(meta);
     card.appendChild(zoom);
@@ -85,6 +142,18 @@ function buildPanelStrip() {
     zoomIn.addEventListener("input", (e) => { ph.zoom = parseFloat(e.target.value); schedule(); });
     panelStrip.appendChild(card);
   });
+}
+
+// v4: undo for photo position — reset a panel's zoom/offset (double-click the
+// panel on the canvas, or the ⟲ button in its strip card)
+function resetPanelCrop(i) {
+  const ph = state.photos[i];
+  if (!ph) return;
+  ph.zoom = 1; ph.ox = 0; ph.oy = 0;
+  const strip = panelStrip.querySelectorAll(".panel-zoom input[type=range]")[i];
+  if (strip) strip.value = "1";
+  schedule();
+  showToast(`Panel ${i + 1} crop reset`);
 }
 
 function pickFile(i) {
@@ -114,7 +183,8 @@ function loadPhotoFile(f, i) {
   img.src = url;
 }
 
-// drag on canvas moves the active panel's photo offset; the wheel zooms it
+// drag on canvas moves the active panel's photo offset; the wheel zooms it;
+// double-click resets that panel's crop
 let dragging = null;
 canvas.addEventListener("pointerdown", (e) => {
   dragging = { x: e.clientX, y: e.clientY, ox: state.photos[activePanel]?.ox || 0, oy: state.photos[activePanel]?.oy || 0 };
@@ -129,6 +199,7 @@ window.addEventListener("pointermove", (e) => {
   schedule();
 });
 window.addEventListener("pointerup", () => { dragging = null; });
+canvas.addEventListener("dblclick", () => resetPanelCrop(activePanel));
 canvas.addEventListener("wheel", (e) => {
   const ph = state.photos[activePanel];
   if (!ph || !ph.img) return;
@@ -149,6 +220,29 @@ document.getElementById("palette").addEventListener("change", (e) => { state.pal
 document.getElementById("template").addEventListener("change", (e) => { state.template = e.target.value; buildPanelStrip(); schedule(); });
 document.getElementById("size").addEventListener("change", (e) => { state.size = e.target.value; schedule(); });
 document.getElementById("reshuffle").addEventListener("click", () => { state.seed = Math.floor(Math.random() * 1e9); schedule(); });
+
+// v4: Random poster — palette + seed + template all at once, never repeating
+// the current combination
+const RANDOM_TITLES = ["VICE STATE", "NEON TIDE", "PALM FEVER", "GOLD COAST", "LAST EXIT", "MIDNIGHT RUN", "PINK HORIZON"];
+document.getElementById("randomize").addEventListener("click", () => {
+  const pick = (arr, not) => {
+    let v; do { v = arr[Math.floor(Math.random() * arr.length)]; } while (arr.length > 1 && v === not);
+    return v;
+  };
+  state.palette = pick(PALETTE_NAMES, state.palette);
+  state.template = pick(Object.keys(TEMPLATES), state.template);
+  state.seed = Math.floor(Math.random() * 1e9);
+  state.title = pick(RANDOM_TITLES, state.title);
+  reflectStateToControls();
+  buildPanelStrip();
+  schedule();
+  showToast(`Random poster · ${state.palette} · ${TEMPLATES[state.template].name}`);
+});
+
+// the aside has its own copy of the button; both share the same action
+document.getElementById("randomize-2").addEventListener("click", () => {
+  document.getElementById("randomize").click();
+});
 
 document.getElementById("add-photo").addEventListener("click", () => pickFile(activePanel));
 
@@ -180,17 +274,21 @@ document.getElementById("export").addEventListener("click", () => {
   });
 });
 
-// keyboard: [ and ] step panels, R reshuffles the sky, E exports
+// keyboard: [ and ] step panels, R reshuffles the sky, N randomizes the poster, E exports
 window.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
   const n = TEMPLATES[state.template].panels.length;
   if (e.key === "[") { activePanel = (activePanel + n - 1) % n; buildPanelStrip(); }
   else if (e.key === "]") { activePanel = (activePanel + 1) % n; buildPanelStrip(); }
   else if (e.key.toLowerCase() === "r") { state.seed = Math.floor(Math.random() * 1e9); schedule(); }
+  else if (e.key.toLowerCase() === "n") { document.getElementById("randomize").click(); }
   else if (e.key.toLowerCase() === "e") { document.getElementById("export").click(); }
 });
 
 // ---------- boot ----------
+// restore a saved poster if there is one, then make the controls match
+const restored = restoreState();
+if (restored) reflectStateToControls();
 buildPanelStrip();
 schedule();
 
@@ -204,6 +302,7 @@ window.__vs = {
     state.photos[i] = { img, src: url, zoom: 1, ox: 0, oy: 0, label: state.photos[i]?.label || "", time: state.photos[i]?.time || "", seed: i + 3 };
     buildPanelStrip();
     await renderCover(canvas, state);
+    saveState();
   },
-  async render() { await renderCover(canvas, state); },
+  async render() { await renderCover(canvas, state); saveState(); },
 };

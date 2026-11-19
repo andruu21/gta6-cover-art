@@ -1,15 +1,11 @@
-// Vice State — a GTA-style multi-panel cover art maker (gta6-cover-art-01 entry).
-// The app is this directory's app/ folder, plain static files a desktop browser loads offline
-// (app/index.html and its ES modules, no library and no network request): panels of the user's
-// own photos with crop, zoom and drag positioning, caption lettering, three export sizes, and a
-// PNG export drawn entirely on a canvas. This program hands it in: it copies app/ and
-// screenshots/ from beside this file to /output and writes /output/dossier.json, the summary the
-// judge reads, with the vendored make.fun library. The two sample photos under app/samples/ were
-// made for make.fun with an image model and are free to use.
-//
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// Vice State entry point (gta6-cover-art-01). This file packages the entry for the
+// make.fun grader: it copies the app/ directory (the self-contained cover-art maker,
+// plain ES modules and sample photos, no dependencies) and the screenshots/ directory
+// from beside this file into /output, then writes /output/dossier.json via the vendored
+// buildDossier helper from vendor/makefun-app.ts, enforcing the scorer's size caps
+// (4 screenshots at 256 KiB each, 993 files / 48 MiB in app/, 1000-byte paths, and a
+// 160 KiB dossier text budget). Serve locally with `node serve.ts`; outside the
+// grader container set MAKEFUN_OUTPUT_DIR to a real directory.
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

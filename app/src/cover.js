@@ -100,23 +100,27 @@ function drawSky(ctx, W, H, pal, rand) {
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
 
   // sun disc with glow
-  const sunX = W * (0.5 + (rand() - .5) * .3), sunY = H * (0.55 + rand() * .06);
-  const glow = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, W * .34);
+  // v4: the sun is pinned to the skyline band — a low, half-set disc just left
+  // of centre, so it looks like the last sliver of daylight sinking behind the
+  // buildings instead of a floating disc in mid-air. The seed only jitters it.
+  const sunX = W * (0.22 + rand() * 0.10), sunY = H * (0.745 + rand() * 0.015);
+  const sunR = W * (.075 + rand() * .015);
+  const glow = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, W * .36);
   glow.addColorStop(0, rgba(pal.glow, .95));
   glow.addColorStop(.25, rgba(pal.hot, .55));
   glow.addColorStop(1, rgba(pal.hot, 0));
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = rgba(pal.glow, .9);
-  ctx.beginPath(); ctx.arc(sunX, sunY, W * .055, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(sunX, sunY, sunR, 0, Math.PI * 2); ctx.fill();
 
   // retro sun stripes
   ctx.save();
   ctx.globalCompositeOperation = "destination-out";
   const stripeH = H * .012;
   for (let i = 0; i < 6; i++) {
-    const y = sunY - W * .055 + i * stripeH * 1.9;
-    if (i > 0) ctx.fillRect(sunX - W * .06, y, W * .12, stripeH * (i * .35 + .6));
+    const y = sunY - sunR + i * stripeH * 1.9;
+    if (i > 0) ctx.fillRect(sunX - sunR * 1.1, y, sunR * 2.2, stripeH * (i * .35 + .6));
   }
   ctx.restore();
 }
@@ -442,6 +446,94 @@ function finishGrade(ctx, W, H, pal, rand) {
   ctx.restore();
 }
 
+// ---------- v4: torn-paper & sticker panel edge accents ----------
+// One or two panels per poster get a hand-cut torn-paper edge on one side
+// (jagged polygon, drawn as a pale deckled rim) and a "sticker" variant gets a
+// bright tape strip across a corner. Deterministic from the seed, so a poster
+// always looks the same but two posters rarely match.
+function tornEdgeAccent(ctx, rect, pal, rand, kind) {
+  ctx.save();
+  ctx.translate(rect.cx, rect.cy);
+  ctx.rotate(rect.tilt * Math.PI / 180);
+  const w = rect.w, h = rect.h;
+  if (kind === "torn") {
+    // jagged deckle running down the right edge, like ripped photo paper
+    ctx.beginPath();
+    ctx.moveTo(w / 2, -h / 2);
+    const steps = 14;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const y = -h / 2 + t * h;
+      const x = w / 2 + (rand() - .5) * w * .022 + Math.sin(t * 21) * w * .006;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(w / 2 + w * .03, h / 2 + h * .015);
+    ctx.lineTo(w / 2 - w * .012, h / 2 + h * .015);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,246,225,.85)";
+    ctx.fill();
+    ctx.strokeStyle = rgba(pal.deep, .5);
+    ctx.lineWidth = w * .004;
+    ctx.stroke();
+  } else {
+    // sticker: neon tape strip diagonally over the top-left corner
+    const len = Math.hypot(w, h) * .34;
+    ctx.save();
+    ctx.translate(-w / 2 + w * .07, -h / 2 + h * .03);
+    ctx.rotate(-Math.PI / 7);
+    ctx.shadowColor = rgba(pal.deep, .5);
+    ctx.shadowBlur = w * .03;
+    ctx.fillStyle = rgba(pal.neon, .9);
+    ctx.fillRect(-len * .08, -w * .018, len, w * .036);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255,255,255,.55)";
+    ctx.fillRect(-len * .08, -w * .018, len, w * .008);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ---------- v4: light-leak / halation pass ----------
+// Warm streaks raking in from the top-left, the way an over-exposed film frame
+// bleeds light across the emulsion. Three soft gradients in "screen" mode plus
+// a couple of hard bright seams — subtle at preview size, unmistakable at 1920px.
+function lightLeakPass(ctx, W, H, pal, rand) {
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  // broad wash from the top edge
+  const wash = ctx.createLinearGradient(0, 0, W * .25, H * .9);
+  wash.addColorStop(0, rgba(pal.glow, .22));
+  wash.addColorStop(.35, rgba(pal.hot, .10));
+  wash.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = wash;
+  ctx.fillRect(0, 0, W, H);
+  // diagonal streaks
+  for (let i = 0; i < 3; i++) {
+    const x = W * (.08 + rand() * .5);
+    const sw = W * (.03 + rand() * .07);
+    const lean = H * (.25 + rand() * .5);
+    const st = ctx.createLinearGradient(x - sw, 0, x + sw * 1.6, lean);
+    st.addColorStop(0, rgba(pal.glow, 0));
+    st.addColorStop(.42, rgba(pal.glow, .16 + rand() * .10));
+    st.addColorStop(.58, rgba(pal.hot, .12 + rand() * .08));
+    st.addColorStop(1, rgba(pal.hot, 0));
+    ctx.fillStyle = st;
+    ctx.save();
+    ctx.translate(x, 0);
+    ctx.rotate(.18 + rand() * .12);
+    ctx.fillRect(-sw * 2, -H * .2, sw * 4, H * 1.6);
+    ctx.restore();
+  }
+  // halation halo near the top where the leak is brightest
+  const hx = W * (.18 + rand() * .25), hy = -H * .04;
+  const halo = ctx.createRadialGradient(hx, hy, 0, hx, hy, W * .30);
+  halo.addColorStop(0, rgba("#fff3c9", .16));
+  halo.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = halo;
+  ctx.fillRect(0, 0, W, H * .7);
+  ctx.restore();
+}
+
 // ---------- main entry ----------
 // state: { title, subtitle, tagline, quote, stars, palette, seed, size, template,
 //          photos: [{img, zoom, ox, oy, label, time}...] }
@@ -473,6 +565,17 @@ export async function renderCover(canvas, state) {
     return { w, h, cx: p.x * W + w / 2, cy: p.y * H + h / 2, tilt: p.tilt, star: p.star };
   });
   rects.forEach(r => panelShadow(ctx, r, pal));
+  // v4: plan which panels get torn-paper / sticker accents (1-2 per poster,
+  // seed-driven, never the star panel)
+  const accentPlan = new Map();
+  {
+    const eligible = rects.map((r, i) => ({ r, i })).filter(e => !e.r.star);
+    const n = eligible.length > 3 ? 2 : 1;
+    for (let k = 0; k < n && eligible.length; k++) {
+      const pick = eligible.splice(Math.floor(rand() * eligible.length), 1)[0];
+      accentPlan.set(pick.i, rand() > .45 ? "torn" : "sticker");
+    }
+  }
   rects.forEach((r, i) => {
     const photo = (state.photos && state.photos[i]) || {};
     drawPhotoInto(ctx, photo.img || null, r, photo, grads[i % grads.length], pal);
@@ -488,6 +591,10 @@ export async function renderCover(canvas, state) {
     ctx.strokeStyle = "rgba(255,255,255,.55)";
     ctx.stroke();
     ctx.restore();
+    // v4: one or two panels get a torn-paper or sticker edge for variety —
+    // never the hero panel, so the poster's anchor stays clean
+    const accent = accentPlan.get(i);
+    if (accent) tornEdgeAccent(ctx, r, pal, rand, accent);
     // panel label chip (top-left, out of the title's way)
     if (photo.label) {
       ctx.save();
@@ -603,7 +710,8 @@ export async function renderCover(canvas, state) {
   ctx.lineWidth = H * .012;
   ctx.strokeRect(ctx.lineWidth / 2, ctx.lineWidth / 2, W - ctx.lineWidth, H - ctx.lineWidth);
 
-  // --- unify: vignette, bloom, grain over everything ---
+  // --- unify: light-leak halation, vignette, bloom, grain over everything ---
+  lightLeakPass(ctx, W, H, pal, rand);
   finishGrade(ctx, W, H, pal, rand);
 }
 

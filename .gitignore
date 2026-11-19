@@ -2,3 +2,6 @@
 out/
 # node tooling if used locally
 node_modules/
+# playwright harness scratch output
+/tmp-vs-shots
+*.log

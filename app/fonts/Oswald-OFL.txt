@@ -1,4 +1,5 @@
-# Oswald — shipped verbatim with the Vice State app. Font copyright its authors; see SIL Open Font License 1.1 below.
+# Oswald — shipped verbatim with the Vice State app (v4). Font copyright its authors; see SIL Open Font License 1.1 below.
+# Vice State uses this variable face for panel labels, chips and badges; the file is unmodified and stays bundled with this licence.
 Copyright 2016 The Oswald Project Authors (https://github.com/googlefonts/OswaldFont)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
