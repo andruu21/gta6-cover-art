@@ -22,16 +22,19 @@ make.fun and are free to use.
 
 ## What's new in v4
 
-- **Light-leak & halation pass** — warm streaks rake across the top of every poster like an
-  over-exposed film frame, unifying the panels and the painted sky.
-- **Torn-paper & sticker accents** — one or two non-hero panels per poster get a hand-cut
-  torn-paper edge or a neon tape strip, chosen by the seed, so no two posters match.
-- **A better sun** — the disc now sits half-set on the skyline instead of floating mid-air.
-- **Undo for photo position** — double-click a panel on the cover (or hit ⟲ Reset in its strip
+- **Corner halation sweeps** — two soft warm radial streaks sweep in from the top corners and
+  meet over the skyline, like an over-exposed film frame bleeding light from both edges.
+- **Sticker accents** — the two smallest panels wear a tilted rounded chip with a palm glyph,
+  travel-sticker style, picked deterministically from the seed.
+- **Warmer grade** — the sky's hot stop gets an extra alpha boost, so every palette reads a
+  notch warmer and the panels grade into it more naturally.
+- **A better sun** — the disc sits half-set on the skyline instead of floating mid-air.
+- **Double-click crop reset** — double-click a panel on the cover (or hit ⟲ Reset in its strip
   card) to reset its zoom and offset.
 - **The poster persists** — captions, colour grade, layout, crops and seed are saved to
   localStorage and restored on reload (photo files are browser-only, so re-pick them).
-- **Random poster** — one click (or <kbd>N</kbd>) shuffles palette, layout, seed and title.
+- **Random poster** — one click (or <kbd>N</kbd>) shuffles palette, layout, seed, title and
+  subtitle flavour in one go; both Random poster buttons share the same code path.
 
 ## How it works
 
@@ -39,7 +42,7 @@ make.fun and are free to use.
 | --- | --- |
 | `app/index.html` | the studio page: preview canvas, caption and look controls, panel strip |
 | `app/src/main.js` | the editor: photo loading, drag/wheel crop, double-click reset, localStorage persistence, PNG export |
-| `app/src/cover.js` | the renderer: procedural sunset sky, tilted photo panels, torn/sticker accents, light-leak halation, extruded neon lettering, film grain finish |
+| `app/src/cover.js` | the renderer: procedural sunset sky, tilted photo panels, palm-glyph sticker chips and torn-paper accents, corner halation sweeps, extruded neon lettering, film grain finish |
 | `app/src/fonts.js` | loads the app's OFL-licensed fonts (Anton, Oswald) with probe-verified readiness |
 | `app/style.css` | the studio's dark-vice theme |
 
@@ -55,9 +58,11 @@ make.fun and are free to use.
   tagline, critic quote strip and wanted-star count, set in the app's own OFL-licensed fonts.
 - **Five colour grades** — Sunset Boulevard, Pastel Dawn, Neon Nights, Vice Cyan, Midnight
   Purple; the sky behind the panels is drawn procedurally (gradient sunset, half-set retro sun,
-  skyline, palms) and light-leak, vignette and film-grain passes unify the frame.
-- **Everything is local** — the poster autosaves to your browser's localStorage; nothing is ever
-  uploaded.
+  skyline, palms) and corner halation sweeps, vignette and film-grain passes unify the frame.
+  Two of the smallest panels carry a tilted palm-glyph sticker chip; one more gets a torn-paper
+  edge — all seed-deterministic, so a poster always redraws identically.
+- **Everything is local** — the poster autosaves to your browser's localStorage (captions, look
+  and crops come back on reload; photo files are not persisted); nothing is ever uploaded.
 - **Fast export** — one click (or the <kbd>E</kbd> key) writes a PNG at the selected size.
 
 Keyboard: <kbd>[</kbd>/<kbd>]</kbd> step panels · <kbd>N</kbd> random poster · <kbd>R</kbd>

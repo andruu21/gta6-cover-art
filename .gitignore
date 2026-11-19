@@ -5,3 +5,5 @@ node_modules/
 # playwright harness scratch output
 /tmp-vs-shots
 *.log
+# macOS droppings from unzip/airdrop round-trips
+.DS_Store

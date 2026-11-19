@@ -33,13 +33,19 @@ export async function loadFonts() {
   return loaded;
 }
 
-// wait until the given family is actually registered (used by the screenshot
-// harness so a capture never races the font swap)
+// v4 improvement pass: whenFontsReady() awaits loadFonts, then explicitly
+// probes BOTH stacks with document.fonts.load() (Anton display, Oswald
+// body/script), then waits for document.fonts.ready — so a caller that
+// captures a screenshot never races the font swap. It returns true when the
+// Anton display face is genuinely registered, false when the renderer is
+// running on the system fallbacks in FONT_TITLE.
 export async function whenFontsReady() {
   await loadFonts();
   for (const f of FONTS) {
     try { await document.fonts.load(f.probe); } catch {}
   }
+  try { await document.fonts.ready; } catch {}
+  return hasDisplayFace();
 }
 
 // true when the Anton display face registered successfully; if it did not,

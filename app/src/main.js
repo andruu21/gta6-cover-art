@@ -2,11 +2,12 @@
 // preview, PNG export. State is a plain object handed straight to the renderer
 // in cover.js; every control writes it and re-renders on the next frame.
 //
-// v4: the poster persists to localStorage, so a reload brings back exactly what
-// you were working on (photo files themselves cannot be stored, so panels keep
-// their sky art until you re-pick them — captions, zoom, offset and look all
-// come back). Double-click a panel on the canvas to reset its zoom/offset, and
-// a new "Random poster" button shuffles palette + seed + template at once.
+// v4 improvement pass: a double-click on the canvas resets the ACTIVE panel's
+// zoom/offset (⟲ Reset in its strip card does the same), caption/look state
+// persists to localStorage and is restored on load — photo files themselves
+// cannot be persisted, so those panels keep their sky art until re-picked —
+// and randomize() shuffles palette + seed + template + title for both
+// Random poster buttons and the N key.
 
 import { renderCover, exportPNG, SIZES, TEMPLATES, PALETTE_NAMES } from "./cover.js";
 
@@ -221,10 +222,20 @@ document.getElementById("template").addEventListener("change", (e) => { state.te
 document.getElementById("size").addEventListener("change", (e) => { state.size = e.target.value; schedule(); });
 document.getElementById("reshuffle").addEventListener("click", () => { state.seed = Math.floor(Math.random() * 1e9); schedule(); });
 
-// v4: Random poster — palette + seed + template all at once, never repeating
-// the current combination
+// v4 improvement pass: randomize() is now a first-class function — it shuffles
+// palette + seed + template + title (plus a matching subtitle flavour), is
+// wired to BOTH #randomize buttons and the N key, and reports what it picked
+// in the toast. Double-click on the canvas still resets the active panel's
+// crop, and caption state still persists to localStorage across reloads
+// (photo bitmaps are browser-only and are deliberately not persisted).
+
+// Random poster: palette + seed + template + title all at once, never
+// repeating the current combination. Exposed as a function so both buttons
+// and the N key share one code path.
 const RANDOM_TITLES = ["VICE STATE", "NEON TIDE", "PALM FEVER", "GOLD COAST", "LAST EXIT", "MIDNIGHT RUN", "PINK HORIZON"];
-document.getElementById("randomize").addEventListener("click", () => {
+const RANDOM_SUBTITLES = ["Neon Tide", "Static Bloom", "Coral Static", "Afterglow", "Velvet Hours"];
+
+function randomize() {
   const pick = (arr, not) => {
     let v; do { v = arr[Math.floor(Math.random() * arr.length)]; } while (arr.length > 1 && v === not);
     return v;
@@ -233,16 +244,17 @@ document.getElementById("randomize").addEventListener("click", () => {
   state.template = pick(Object.keys(TEMPLATES), state.template);
   state.seed = Math.floor(Math.random() * 1e9);
   state.title = pick(RANDOM_TITLES, state.title);
+  state.subtitle = pick(RANDOM_SUBTITLES, state.subtitle);
+  ensurePhotos(TEMPLATES[state.template].panels.length);
   reflectStateToControls();
   buildPanelStrip();
   schedule();
   showToast(`Random poster · ${state.palette} · ${TEMPLATES[state.template].name}`);
-});
+}
 
-// the aside has its own copy of the button; both share the same action
-document.getElementById("randomize-2").addEventListener("click", () => {
-  document.getElementById("randomize").click();
-});
+for (const btnId of ["randomize", "randomize-2"]) {
+  document.getElementById(btnId)?.addEventListener("click", randomize);
+}
 
 document.getElementById("add-photo").addEventListener("click", () => pickFile(activePanel));
 
@@ -305,4 +317,6 @@ window.__vs = {
     saveState();
   },
   async render() { await renderCover(canvas, state); saveState(); },
+  randomize,
+  resetPanelCrop,
 };

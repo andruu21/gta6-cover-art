@@ -1,4 +1,4 @@
-# Oswald — shipped verbatim with the Vice State app (v4). Font copyright its authors; see SIL Open Font License 1.1 below.
+# Oswald — bundled with Vice State (gta6-cover-art-01), v4 improvement pass, 2026-11-20. Font copyright its authors; see SIL Open Font License 1.1 below.
 # Vice State uses this variable face for panel labels, chips and badges; the file is unmodified and stays bundled with this licence.
 Copyright 2016 The Oswald Project Authors (https://github.com/googlefonts/OswaldFont)
 

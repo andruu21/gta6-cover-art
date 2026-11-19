@@ -79,7 +79,9 @@ body {
 .btn:focus-visible {
   outline: 2px solid var(--cyan);
   outline-offset: 1px;
+  box-shadow: 0 0 0 4px rgba(40, 240, 216, .18);
 }
+.btn.dice:focus-visible { outline-color: var(--gold); box-shadow: 0 0 0 4px rgba(255, 213, 74, .22); }
 
 .btn {
   background: #33164a; color: var(--text);
@@ -99,17 +101,26 @@ body {
 }
 .btn.primary:hover { filter: brightness(1.1); box-shadow: 0 0 20px rgba(255, 47, 179, .55); }
 .btn.dice {
-  background: linear-gradient(90deg, #1b3a5c, #27134d);
-  border-color: var(--cyan); color: var(--cyan);
+  background: linear-gradient(120deg, #164a5c 0%, #27134d 55%, #4a1a6e 100%);
+  border: 1px solid var(--cyan);
+  border-radius: 999px;
+  padding-left: 18px; padding-right: 18px;
+  color: var(--cyan);
   font-weight: 600;
+  letter-spacing: 1px;
+  text-shadow: 0 0 10px rgba(40, 240, 216, .35);
 }
-.btn.dice:hover { box-shadow: 0 0 14px rgba(40, 240, 216, .35); filter: brightness(1.15); }
+.btn.dice:hover {
+  box-shadow: 0 0 18px rgba(40, 240, 216, .45);
+  filter: brightness(1.2);
+}
 .btn.mini {
   padding: 2px 7px; font-size: 11px; border-radius: 4px; margin-top: 4px;
   background: #241038; color: var(--dim);
 }
 .btn.mini:hover { color: var(--gold); background: #33164a; }
-.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.btn-row .btn { flex: 1 1 auto; }
 
 .panel-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
 .panel-card {
@@ -141,11 +152,15 @@ body {
   background: rgba(20, 8, 34, .94); color: var(--gold);
   border: 1px solid var(--accent); border-radius: 8px;
   padding: 9px 18px; font-size: 14px; letter-spacing: .5px;
-  box-shadow: 0 6px 24px rgba(0,0,0,.5), 0 0 16px rgba(255, 47, 179, .3);
-  opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s;
+  box-shadow: 0 6px 24px rgba(0,0,0,.5), 0 0 16px rgba(255, 47, 179, .3), 0 0 42px rgba(255, 47, 179, .18);
+  text-shadow: 0 0 12px rgba(255, 213, 74, .35);
+  opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s, box-shadow .25s;
   z-index: 10;
 }
-.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.show {
+  opacity: 1; transform: translate(-50%, 0);
+  box-shadow: 0 6px 28px rgba(0,0,0,.55), 0 0 22px rgba(255, 47, 179, .5), 0 0 64px rgba(255, 47, 179, .3);
+}
 
 @media (max-width: 980px) {
   .studio { grid-template-columns: 1fr; }

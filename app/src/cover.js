@@ -2,6 +2,11 @@
 // Everything here is original canvas drawing: procedural sky, tilted photo
 // panels with drop shadows, colour grading, extruded neon lettering, badges.
 // No Rockstar assets, no external images — fonts come from app/fonts/ (OFL).
+//
+// v4 improvement pass: a halation pass sweeps two soft warm radial streaks in
+// from the TOP CORNERS (not just the top-left), two of the smallest panels get
+// a tilted rounded sticker chip carrying a palm glyph, and the whole grade is
+// a touch warmer because the sky's hot stop now gets an extra alpha boost.
 
 import { FONT_TITLE, FONT_BODY, FONT_SCRIPT, loadFonts, defaultFontStack } from "./fonts.js";
 export { loadFonts, defaultFontStack };
@@ -98,6 +103,16 @@ function drawSky(ctx, W, H, pal, rand) {
   g.addColorStop(.85, pal.glow);
   g.addColorStop(1, pal.deep);
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  // v4 warmer grade: a second hot-stop wash over the horizon band boosts the
+  // hot colour's alpha well past what the base gradient gives it, so every
+  // palette reads a notch warmer and the panels grade into it more naturally
+  const hotWash = ctx.createLinearGradient(0, H * .38, 0, H * .84);
+  hotWash.addColorStop(0, rgba(pal.hot, 0));
+  hotWash.addColorStop(.45, rgba(pal.hot, .26));
+  hotWash.addColorStop(1, rgba(pal.hot, 0));
+  ctx.fillStyle = hotWash;
+  ctx.fillRect(0, 0, W, H);
 
   // sun disc with glow
   // v4: the sun is pinned to the skyline band — a low, half-set disc just left
@@ -446,6 +461,42 @@ function finishGrade(ctx, W, H, pal, rand) {
   ctx.restore();
 }
 
+// ---------- v4: sticker chip accent ----------
+// A small tilted rounded chip with a palm glyph, pinned to the top-right
+// corner of two of the smaller panels — a trinket like a travel sticker. The
+// chip uses the palette's glow fill with a neon rim; the palm is drawn with
+// the same silhouette primitives as the banner band, scaled down and mirrored
+// so it reads as a glyph rather than a scene.
+function stickerChip(ctx, rect, pal) {
+  ctx.save();
+  ctx.translate(rect.cx, rect.cy);
+  ctx.rotate(rect.tilt * Math.PI / 180);
+  const w = rect.w, h = rect.h;
+  const cw = Math.min(w, h) * .26;          // chip size
+  const ch = cw * .68;
+  const px = w / 2 - cw - w * .035;         // top-right corner, inside the frame
+  const py = -h / 2 + h * .035;
+  ctx.translate(px + cw / 2, py + ch / 2);
+  ctx.rotate(-8 * Math.PI / 180);           // deliberately a few degrees off
+  ctx.shadowColor = rgba(pal.deep, .55);
+  ctx.shadowBlur = cw * .25;
+  rr(ctx, -cw / 2, -ch / 2, cw, ch, ch * .28);
+  ctx.fillStyle = rgba(pal.glow, .92);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = ch * .09;
+  ctx.strokeStyle = rgba(pal.neon, .9);
+  ctx.stroke();
+  // the palm glyph itself: a tiny trunk arc plus five droopy fronds
+  ctx.save();
+  ctx.translate(0, ch * .18);
+  const ph = ch * .62;
+  ctx.scale(-1, 1);                          // mirror so it faces the corner
+  palmSilhouette(ctx, 0, 0, ph, 0, rgba(pal.deep, .95));
+  ctx.restore();
+  ctx.restore();
+}
+
 // ---------- v4: torn-paper & sticker panel edge accents ----------
 // One or two panels per poster get a hand-cut torn-paper edge on one side
 // (jagged polygon, drawn as a pale deckled rim) and a "sticker" variant gets a
@@ -494,21 +545,32 @@ function tornEdgeAccent(ctx, rect, pal, rand, kind) {
 }
 
 // ---------- v4: light-leak / halation pass ----------
-// Warm streaks raking in from the top-left, the way an over-exposed film frame
-// bleeds light across the emulsion. Three soft gradients in "screen" mode plus
-// a couple of hard bright seams — subtle at preview size, unmistakable at 1920px.
+// Two soft warm radial streaks sweep in from the TOP CORNERS — the way an
+// over-exposed film frame bleeds light across the emulsion from both edges —
+// plus a couple of hard bright seams down the middle. Subtle at preview size,
+// unmistakable at 1920px.
 function lightLeakPass(ctx, W, H, pal, rand) {
   ctx.save();
   ctx.globalCompositeOperation = "screen";
-  // broad wash from the top edge
-  const wash = ctx.createLinearGradient(0, 0, W * .25, H * .9);
-  wash.addColorStop(0, rgba(pal.glow, .22));
-  wash.addColorStop(.35, rgba(pal.hot, .10));
-  wash.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = wash;
-  ctx.fillRect(0, 0, W, H);
-  // diagonal streaks
-  for (let i = 0; i < 3; i++) {
+  // corner sweeps: one radial halo per top corner, angled inward so the two
+  // streaks lean toward each other and meet over the skyline
+  const corners = [
+    { x: 0, y: 0, dx: W * .30, dy: H * .55, bias: .10 },
+    { x: W, y: 0, dx: -W * .26, dy: H * .60, bias: .07 },
+  ];
+  for (const c of corners) {
+    const cx = c.x + c.dx * (.85 + rand() * .2);
+    const cy = c.y + c.dy * (.8 + rand() * .25);
+    const R = Math.hypot(c.dx, c.dy) * (1.1 + rand() * .2);
+    const halo = ctx.createRadialGradient(c.x, c.y, 0, cx, cy, R);
+    halo.addColorStop(0, rgba(pal.glow, .26 + c.bias));
+    halo.addColorStop(.35, rgba(pal.hot, .14 + c.bias));
+    halo.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, W, H);
+  }
+  // diagonal seams threading between the two sweeps
+  for (let i = 0; i < 2; i++) {
     const x = W * (.08 + rand() * .5);
     const sw = W * (.03 + rand() * .07);
     const lean = H * (.25 + rand() * .5);
@@ -524,13 +586,6 @@ function lightLeakPass(ctx, W, H, pal, rand) {
     ctx.fillRect(-sw * 2, -H * .2, sw * 4, H * 1.6);
     ctx.restore();
   }
-  // halation halo near the top where the leak is brightest
-  const hx = W * (.18 + rand() * .25), hy = -H * .04;
-  const halo = ctx.createRadialGradient(hx, hy, 0, hx, hy, W * .30);
-  halo.addColorStop(0, rgba("#fff3c9", .16));
-  halo.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = halo;
-  ctx.fillRect(0, 0, W, H * .7);
   ctx.restore();
 }
 
@@ -565,15 +620,19 @@ export async function renderCover(canvas, state) {
     return { w, h, cx: p.x * W + w / 2, cy: p.y * H + h / 2, tilt: p.tilt, star: p.star };
   });
   rects.forEach(r => panelShadow(ctx, r, pal));
-  // v4: plan which panels get torn-paper / sticker accents (1-2 per poster,
-  // seed-driven, never the star panel)
+  // v4: plan panel accents — the two SMALLEST non-star panels get the tilted
+  // palm-glyph sticker chip; one further panel (if the layout is big enough)
+  // gets a torn-paper edge. Never the star panel, so the poster's anchor
+  // stays clean, and everything stays seed-deterministic.
   const accentPlan = new Map();
   {
     const eligible = rects.map((r, i) => ({ r, i })).filter(e => !e.r.star);
-    const n = eligible.length > 3 ? 2 : 1;
-    for (let k = 0; k < n && eligible.length; k++) {
-      const pick = eligible.splice(Math.floor(rand() * eligible.length), 1)[0];
-      accentPlan.set(pick.i, rand() > .45 ? "torn" : "sticker");
+    const smallest = [...eligible].sort((a, b) => (a.r.w * a.r.h) - (b.r.w * b.r.h)).slice(0, 2);
+    smallest.forEach(e => accentPlan.set(e.i, "chip"));
+    if (eligible.length > 3) {
+      const rest = eligible.filter(e => !accentPlan.has(e.i));
+      const pick = rest.splice(Math.floor(rand() * rest.length), 1)[0];
+      if (pick) accentPlan.set(pick.i, "torn");
     }
   }
   rects.forEach((r, i) => {
@@ -591,10 +650,11 @@ export async function renderCover(canvas, state) {
     ctx.strokeStyle = "rgba(255,255,255,.55)";
     ctx.stroke();
     ctx.restore();
-    // v4: one or two panels get a torn-paper or sticker edge for variety —
-    // never the hero panel, so the poster's anchor stays clean
+    // v4: accents — palm sticker chip on the two smallest panels, torn-paper
+    // edge on one more; the hero panel stays clean
     const accent = accentPlan.get(i);
-    if (accent) tornEdgeAccent(ctx, r, pal, rand, accent);
+    if (accent === "chip") stickerChip(ctx, r, pal);
+    else if (accent) tornEdgeAccent(ctx, r, pal, rand, accent);
     // panel label chip (top-left, out of the title's way)
     if (photo.label) {
       ctx.save();
