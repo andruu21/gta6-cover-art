@@ -754,6 +754,119 @@ function drawStars(ctx, x, y, filled, total, size, colorOn, colorOff) {
   }
 }
 
+// Angled cast-role tag: a small ribbon pinned to the panel's lower-left
+// corner, overlapping the frame edge, carrying a role name
+// (PROTAGONIST / PARTNER / ANTAGONIST …).
+const ROLE_COLORS = {
+  protagonist: ["#ffd166", "#2d0b3c"],
+  partner: ["#28f0d8", "#082620"],
+  antagonist: ["#ff2fb3", "#2b0620"],
+  ally: ["#ff8a3d", "#2d1206"],
+  wildcard: ["#b08cff", "#170b2e"],
+};
+
+function drawRoleTag(ctx, rect, role, pal) {
+  if (!role) return;
+  const [bg, fg] = ROLE_COLORS[role.toLowerCase()] || [pal.glow, pal.deep];
+  const label = role.toUpperCase();
+  ctx.save();
+  ctx.translate(rect.cx, rect.cy);
+  ctx.rotate(rect.tilt * Math.PI / 180);
+
+  const fs = Math.max(10, rect.h * .062);
+  ctx.font = `700 ${fs}px ${FONT_BODY}`;
+  const tw = ctx.measureText(label).width;
+  const padX = fs * .7, tagH = fs * 1.9;
+  const tagW = tw + padX * 2;
+  // Hang off the lower-left corner: half outside the frame.
+  const x0 = -rect.w / 2 - tagW * .12;
+  const y0 = rect.h / 2 - tagH * .55;
+
+  ctx.translate(x0 + tagW / 2, y0 + tagH / 2);
+  ctx.rotate(-6 * Math.PI / 180);
+
+  ctx.shadowColor = "rgba(0,0,0,.5)";
+  ctx.shadowBlur = fs * .6;
+  ctx.shadowOffsetY = fs * .18;
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  // Ribbon with a notched left end.
+  const w2 = tagW / 2, h2 = tagH / 2, notch = fs * .55;
+  ctx.moveTo(-w2 + notch, -h2);
+  ctx.lineTo(w2, -h2);
+  ctx.lineTo(w2, h2);
+  ctx.lineTo(-w2 + notch, h2);
+  ctx.lineTo(-w2, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = Math.max(1, fs * .1);
+  ctx.strokeStyle = "rgba(0,0,0,.35)";
+  ctx.stroke();
+
+  ctx.fillStyle = fg;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, notch * .3, fs * .06);
+  ctx.restore();
+}
+
+// Colored angled ribbon under the title carrying the tagline. Returns the
+// ribbon's vertical extent so the caller can keep other art clear of it.
+function drawTaglineRibbon(ctx, text, cx, cy, maxW, pal) {
+  if (!text) return null;
+  const label = text.toUpperCase();
+  let fs = maxW * .075;
+  ctx.font = `700 ${fs}px ${FONT_DISPLAY}`;
+  while (fs > 9 && ctx.measureText(label).width > maxW * .82) {
+    fs *= .95;
+    ctx.font = `700 ${fs}px ${FONT_DISPLAY}`;
+  }
+  const tw = ctx.measureText(label).width;
+  const padX = fs * .9;
+  const rw = tw + padX * 2;
+  const rh = fs * 1.75;
+  const ANGLE = -2.2 * Math.PI / 180;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(ANGLE);
+
+  // Drop shadow ribbon behind (offset dark layer), then the main ribbon.
+  const ribbon = (fill, dx, dy) => {
+    ctx.save();
+    ctx.translate(dx, dy);
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    const w2 = rw / 2, h2 = rh / 2, notch = fs * .6;
+    ctx.moveTo(-w2, -h2);
+    ctx.lineTo(w2 - notch, -h2);
+    ctx.lineTo(w2, 0);
+    ctx.lineTo(w2 - notch, h2);
+    ctx.lineTo(-w2, h2);
+    ctx.lineTo(-w2 + notch, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
+  ctx.shadowColor = "rgba(0,0,0,.45)";
+  ctx.shadowBlur = fs * .8;
+  ctx.shadowOffsetY = fs * .25;
+  ribbon(rgba(pal.deep, .92), 0, 0);
+  ctx.shadowBlur = 0;
+  ribbon(pal.hot, 0, -rh * .10);
+  ribbon(pal.neon, 0, -rh * .20);
+
+  ctx.fillStyle = "#1c0510";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.translate(0, -rh * .15);
+  ctx.fillText(label, 0, 0);
+  ctx.restore();
+
+  return { cy, rh: rh * 1.4 };
+}
+
 // ------------------------------------------------------------ banner band
 
 // Palm-dotted strip along the bottom. Returns its geometry so the caller can
@@ -1116,6 +1229,9 @@ export async function renderCover(canvas, state) {
       ctx.restore();
     }
 
+    // Cast role tag ribbon, lower-left, overlapping the frame edge.
+    if (photo.role) drawRoleTag(ctx, r, photo.role, pal);
+
     // Wanted stars: a vertical column in the star panel's top right corner.
     if (r.star && state.stars > 0) {
       ctx.save();
@@ -1193,6 +1309,14 @@ export async function renderCover(canvas, state) {
 
   drawTitle(ctx, (state.title || "VICE STATE").toUpperCase(),
     titleCx, titleY, titleSize, pal, Math.round(titleSize * .045), titleMax);
+
+  // Tagline ribbon, angled, tucked between the title and the critic strip /
+  // banner. Replaces the plain footer text on wide layouts; the banner keeps
+  // its own small-print pass either way.
+  const ribbonText = state.tagline || "ONE COAST · NO RULES · COMING SOON";
+  drawTaglineRibbon(ctx, ribbonText,
+    titleCx, titleY + titleSize * (state.subtitle ? .78 : .52),
+    tall ? W * .82 : W * .56, pal);
 
   if (state.subtitle) {
     drawSubtitle(ctx, state.subtitle, titleCx + titleSize * .3,
