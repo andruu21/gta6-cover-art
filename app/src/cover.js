@@ -724,6 +724,19 @@ function vignetteOverlay(ctx, W, H, pal, strength = .22) {
   ctx.fillRect(0, 0, W, H);
 }
 
+// Placeholder fills for photo-less panels, derived from the palette so empty
+// panels always sit inside the poster's grade instead of fighting it.
+function panelFills(pal) {
+  return [
+    [blend(pal.top, pal.mid, .5), pal.hot],
+    [blend(pal.top, "#001a26", .5), pal.neon],
+    [blend(pal.deep, "#000000", .4), pal.glow],
+    [blend(pal.top, "#0e321e", .5), pal.hot],
+    [blend(pal.top, pal.deep, .5), pal.neon],
+    [blend(pal.deep, "#3d1200", .5), pal.glow],
+  ];
+}
+
 // ---------------------------------------------------------------- render
 
 // state: { title, subtitle, tagline, quote, stars, palette, seed, size,
@@ -744,10 +757,7 @@ export async function renderCover(canvas, state) {
 
   // Templates.
   const tpl = TEMPLATES[state.template] || TEMPLATES.hero;
-  const fills = [
-    ["#3b0d56", "#ff8a3d"], ["#0e2a3a", "#ff2fb3"], ["#4a0b2e", "#ffd166"],
-    ["#10321e", "#ff6a3d"], ["#2b0a3d", "#28f0d8"], ["#3d1200", "#ff9d2e"],
-  ];
+  const fills = panelFills(pal);
 
   const rects = tpl.panels.map((p) => {
     const w = p.w * W;
