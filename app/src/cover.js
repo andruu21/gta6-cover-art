@@ -624,8 +624,10 @@ function trackedText(ctx, text, cx, y, tracking) {
   ctx.textAlign = prevAlign;
 }
 
-// Extruded chrome title: stacked dark offset layers, a deep rim, a vertical
-// gradient fill, then a specular re-stroke clipped to the top half.
+// Striped-chrome title: stacked dark offset layers for extrusion, a strong
+// dark outline, a warm drop shadow, then the lettering filled with horizontal
+// chrome stripes — silver bands over sunset colours — plus a specular
+// highlight clipped to the top half and a slanted perspective skew.
 function drawTitle(ctx, text, cx, y, size, pal, extrude, maxW) {
   ctx.save();
   size = fitDisplay(ctx, text, size, maxW);
@@ -633,26 +635,71 @@ function drawTitle(ctx, text, cx, y, size, pal, extrude, maxW) {
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
 
+  // Slanted perspective: a slight skew reads as the retro chrome lean.
+  const SKEW = -0.08;
+  ctx.transform(1, 0, SKEW, 1, -SKEW * y, 0);
+
+  // Warm drop shadow under everything.
+  ctx.save();
+  ctx.shadowColor = rgba(pal.hot, .55);
+  ctx.shadowBlur = size * .18;
+  ctx.shadowOffsetX = size * .04;
+  ctx.shadowOffsetY = size * .06;
+  ctx.fillStyle = pal.deep;
+  ctx.fillText(text, cx, y);
+  ctx.restore();
+
+  // Extrusion stack.
   for (let i = extrude; i >= 1; i--) {
     ctx.fillStyle = blend(pal.deep, "#000000", (i / extrude) * .7);
     ctx.fillText(text, cx + i * size * .012, y + i * size * .012);
   }
 
-  ctx.lineWidth = size * .075;
-  ctx.strokeStyle = pal.deep;
+  // Strong dark outline.
+  ctx.lineWidth = size * .085;
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = blend(pal.deep, "#000000", .35);
   ctx.strokeText(text, cx, y);
 
-  const fill = ctx.createLinearGradient(0, y - size * .9, 0, y + size * .05);
-  fill.addColorStop(0, "#fff7d6");
-  fill.addColorStop(.45, pal.glow);
-  fill.addColorStop(.8, pal.hot);
-  fill.addColorStop(1, pal.mid);
+  // Chrome stripe fill: repeating horizontal bands, silver on top fading
+  // into the palette's sunset colours, then a dark floor.
+  const top = y - size * .92;
+  const bot = y + size * .08;
+  const band = (bot - top) / 7;
+  const fill = ctx.createLinearGradient(0, top, 0, bot);
+  fill.addColorStop(0.00, "#fdfdff");
+  fill.addColorStop(0.10, "#dfe4ee");
+  fill.addColorStop(0.20, "#8f9bb0");
+  fill.addColorStop(0.30, "#f4f7ff");
+  fill.addColorStop(0.40, blend("#ffffff", pal.glow, .55));
+  fill.addColorStop(0.52, pal.glow);
+  fill.addColorStop(0.64, pal.hot);
+  fill.addColorStop(0.76, pal.mid);
+  fill.addColorStop(0.88, blend(pal.mid, pal.deep, .5));
+  fill.addColorStop(1.00, pal.deep);
   ctx.fillStyle = fill;
   ctx.fillText(text, cx, y);
 
+  // Thin darker seams between the silver bands so the striping reads as
+  // machined chrome rather than one smooth ramp.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(cx - maxW * 1.2, top, maxW * 2.4, bot - top);
+  ctx.clip();
+  ctx.strokeStyle = "rgba(20,8,30,.28)";
+  for (let i = 1; i <= 6; i++) {
+    ctx.lineWidth = Math.max(1, size * .008);
+    ctx.beginPath();
+    ctx.moveTo(cx - maxW * 1.2, top + band * i);
+    ctx.lineTo(cx + maxW * 1.2, top + band * i);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Specular re-stroke, lighter blend, clipped to the top half.
   ctx.globalCompositeOperation = "lighter";
   ctx.lineWidth = size * .02;
-  ctx.strokeStyle = "rgba(255,255,255,.5)";
+  ctx.strokeStyle = "rgba(255,255,255,.55)";
   ctx.save();
   ctx.beginPath();
   ctx.rect(cx - maxW, y - size * 1.05, maxW * 2, size * .72);
