@@ -346,7 +346,7 @@ export function analyzePhoto(img) {
     return {
       face: { x: fcx, y: fcy, r },
       bbox: { minX, minY, maxX, maxY },
-      mask, mw, mh,
+      mask, mw, mh, data,
     };
   } catch {
     return null; // tainted canvas or exotic backend — degrade silently
@@ -365,6 +365,134 @@ export function faceCropOffsets(img, rect, photo, fx = .5, fy = .38) {
   const ox = (fx - an.face.x / img.width) * dw / rect.w;
   const oy = ((fy - .5) * rect.h + dh / 2 - an.face.y / img.height * dh) / rect.h;
   return { ox, oy, face: an.face };
+}
+
+// ---------------------------------------------------------- pop-out hero
+
+// Cut-out: analyse the photo, then flood-grow the skin mask into a full
+// subject silhouette. `cutoutSubject._data` must be primed first (see
+// primeCutout) — it carries the downscaled RGBA the flood reads.
+export function cutoutSubject(img) {
+  try {
+    const an = analyzePhoto(img);
+    if (!an) return null;
+    const { mask, mw, mh, face } = an;
+
+    // Grown mask: flood from the skin pixels across "probably subject"
+    // pixels — anything not reading as sky/sea, foliage or deep shadow —
+    // so face, neck and shirt come out as one blob.
+    const mwMh = mw * mh;
+    const grown = new Uint8Array(mwMh);
+    const queue = [];
+    for (let i = 0; i < mwMh; i++) {
+      if (mask[i]) { grown[i] = 1; queue.push(i); }
+    }
+    const data = an.data; // downscaled RGBA from analyzePhoto()
+    if (!data) return null;
+    const isCandidate = (i) => {
+      const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+      if (b > r + 18 && b > g + 8) return false; // sky / sea
+      if (g > r + 14 && g > b + 8) return false; // foliage
+      if (r + g + b < 90) return false;          // deep shadow
+      return true;
+    };
+    let head = 0;
+    while (head < queue.length) {
+      const i = queue[head++];
+      const x = i % mw, y = (i / mw) | 0;
+      for (const j of [
+        x > 0 ? i - 1 : -1, x < mw - 1 ? i + 1 : -1,
+        y > 0 ? i - mw : -1, y < mh - 1 ? i + mw : -1,
+      ]) {
+        if (j < 0 || grown[j] || !isCandidate(j)) continue;
+        grown[j] = 1;
+        queue.push(j);
+      }
+    }
+    // Two despeckle passes: drop kept pixels with no kept neighbour, re-add
+    // skin-adjacent holes. Smooths the silhouette edge.
+    for (let pass = 0; pass < 2; pass++) {
+      const next = new Uint8Array(grown);
+      for (let y = 0; y < mh; y++) {
+        for (let x = 0; x < mw; x++) {
+          const i = y * mw + x;
+          const nb = (x > 0 ? grown[i - 1] : 0) + (x < mw - 1 ? grown[i + 1] : 0)
+            + (y > 0 ? grown[i - mw] : 0) + (y < mh - 1 ? grown[i + mw] : 0);
+          if (grown[i] && nb === 0) next[i] = 0;
+          else if (!grown[i] && mask[i]) next[i] = 1;
+        }
+      }
+      grown.set(next);
+    }
+
+    // Render at a workable resolution with the mask scaled up and feathered.
+    const workW = 520;
+    const workH = Math.max(40, Math.round(img.height * workW / img.width));
+    const out = document.createElement("canvas");
+    out.width = workW; out.height = workH;
+    const octx = out.getContext("2d");
+    octx.drawImage(img, 0, 0, workW, workH);
+
+    const imgData = octx.getImageData(0, 0, workW, workH);
+    const px = imgData.data;
+    const sx = workW / mw, sy = workH / mh;
+    for (let y = 0; y < workH; y++) {
+      for (let x = 0; x < workW; x++) {
+        // Bilinear-ish sample of the small mask (nearest is fine at 96 wide).
+        const mx = Math.min(mw - 1, (x / sx) | 0);
+        const my = Math.min(mh - 1, (y / sy) | 0);
+        const keep = grown[my * mw + mx];
+        const i = (y * workW + x) * 4;
+        if (!keep) {
+          px[i + 3] = 0;
+        } else if (!mask[my * mw + mx]) {
+          // Non-skin part of the subject: soften the boundary a touch.
+          px[i + 3] = Math.min(px[i + 3], 235);
+        }
+      }
+    }
+    octx.putImageData(imgData, 0, 0);
+    return { canvas: out, face, aspect: img.height / img.width };
+  } catch {
+    return null;
+  }
+}
+
+// Convenience wrapper: cut out the subject of `img` in one call.
+export function primeCutout(img) {
+  cutoutSubject._data = null;
+  return cutoutSubject(img);
+}
+
+// Draw the star panel's cut-out subject, scaled past the frame so head and
+// shoulders overflow above the panel border. Called after every panel is
+// framed so the silhouette sits ON TOP of neighbouring art.
+function drawHeroPopout(ctx, cut, rect, pal) {
+  if (!cut) return;
+  const { canvas: cutCanvas, face } = cut;
+  // Scale: blow the subject up so the face box ends ~22% bigger than the
+  // panel width would suggest — head clearly leaves the frame.
+  const zoom = 1.34;
+  const scale = (rect.w * zoom) / cutCanvas.width;
+  const dw = cutCanvas.width * scale;
+  const dh = cutCanvas.height * scale;
+
+  // Anchor: keep the detected face at the same relative spot it occupies in
+  // the panel photo, then lift the whole cut-out so the head clears the top
+  // edge by ~18% of the panel height.
+  const relFaceX = face.x / cutCanvas.width;
+  const relFaceY = face.y / cutCanvas.height;
+  const panelFaceX = rect.cx + (rect.w * (.5 - relFaceX)) * zoom * .9;
+  const panelFaceY = rect.cy - rect.h * .18 + (rect.h * (.42 - relFaceY)) * zoom * .9;
+  const dx = panelFaceX - relFaceX * dw;
+  const dy = panelFaceY - relFaceY * dh;
+
+  ctx.save();
+  ctx.shadowColor = rgba(pal.deep, .55);
+  ctx.shadowBlur = rect.w * .06;
+  ctx.shadowOffsetY = rect.w * .02;
+  ctx.drawImage(cutCanvas, dx, dy, dw, dh);
+  ctx.restore();
 }
 
 // ----------------------------------------------------------- photo panels
@@ -965,6 +1093,16 @@ export async function renderCover(canvas, state) {
       ctx.restore();
     }
   });
+
+  // --- pop-out hero: the star panel's subject breaks out of its frame ---
+  if (state.popout !== false) {
+    const starIdx = rects.findIndex((r) => r.star);
+    const starPhoto = starIdx >= 0 && (state.photos && state.photos[starIdx]);
+    if (starPhoto && starPhoto.img) {
+      const cut = primeCutout(starPhoto.img);
+      if (cut) drawHeroPopout(ctx, cut, rects[starIdx], pal);
+    }
+  }
 
   // --- lettering block ---
   const tall = state.template === "grid5";
