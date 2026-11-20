@@ -8,7 +8,7 @@
 // a tilted rounded sticker chip carrying a palm glyph, and the whole grade is
 // a touch warmer because the sky's hot stop now gets an extra alpha boost.
 
-import { FONT_DISPLAY, FONT_BODY, defaultFontStack } from "./fonts.js";
+import { FONT_DISPLAY, FONT_BODY, WEIGHT, defaultFontStack } from "./fonts.js";
 export { defaultFontStack };
 
 // ---------- colour palettes ----------
@@ -287,19 +287,35 @@ function panelShadow(ctx, rect, pal) {
 // ---------- lettering ----------
 // Shrink the font size until the text fits maxW, so a long caption can never
 // overflow the poster or collide with the seal badge.
-function fitTitleSize(ctx, text, size, maxW, weight = "") {
-  ctx.font = `${weight}${Math.round(size)}px ${FONT_DISPLAY}`;
+function fitTitleSize(ctx, text, size, maxW, weight = WEIGHT.TITLE) {
+  ctx.font = `${weight ? weight + " " : ""}${Math.round(size)}px ${FONT_DISPLAY}`;
   while (size > 10 && ctx.measureText(text).width > maxW) {
     size *= 0.94;
-    ctx.font = `${weight}${Math.round(size)}px ${FONT_DISPLAY}`;
+    ctx.font = `${weight ? weight + " " : ""}${Math.round(size)}px ${FONT_DISPLAY}`;
   }
   return size;
+}
+
+// letter-spaced drawing: canvas has no portable letterSpacing, so the
+// subtitle is drawn one glyph at a time with a fixed tracking gap
+function trackedText(ctx, text, cx, y, tracking) {
+  const chars = [...text];
+  const widths = chars.map(c => ctx.measureText(c).width);
+  const total = widths.reduce((a, b) => a + b, 0) + tracking * (chars.length - 1);
+  let x = cx - total / 2;
+  const prevAlign = ctx.textAlign;
+  ctx.textAlign = "left";
+  chars.forEach((c, i) => {
+    ctx.fillText(c, x, y);
+    x += widths[i] + tracking;
+  });
+  ctx.textAlign = prevAlign;
 }
 
 function outlineText(ctx, text, cx, y, size, pal, extrude, maxW) {
   ctx.save();
   size = fitTitleSize(ctx, text, size, maxW);
-  ctx.font = `${Math.round(size)}px ${FONT_DISPLAY}`;
+  ctx.font = `${WEIGHT.TITLE} ${Math.round(size)}px ${FONT_DISPLAY}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   // extruded shadow layers (down-right)
@@ -335,19 +351,19 @@ function outlineText(ctx, text, cx, y, size, pal, extrude, maxW) {
   return size;
 }
 
-function scriptText(ctx, text, cx, y, size, pal) {
+function scriptText(ctx, text, cx, y, size, pal, tracking = size * .05) {
   ctx.save();
-  ctx.font = `${size}px ${FONT_BODY}`;
+  ctx.font = `${WEIGHT.SUBTITLE} ${size}px ${FONT_BODY}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   ctx.lineWidth = size * .22;
   ctx.strokeStyle = pal.deep;
-  ctx.strokeText(text, cx, y);
+  trackedText(ctx, text, cx, y, tracking);
   ctx.lineWidth = size * .1;
   ctx.strokeStyle = pal.neon;
-  ctx.strokeText(text, cx, y);
+  trackedText(ctx, text, cx, y, tracking);
   ctx.fillStyle = "#ffe9f7";
-  ctx.fillText(text, cx, y);
+  trackedText(ctx, text, cx, y, tracking);
   ctx.restore();
 }
 
@@ -659,7 +675,7 @@ export async function renderCover(canvas, state) {
       ctx.save();
       ctx.translate(r.cx, r.cy); ctx.rotate(r.tilt * Math.PI / 180);
       const fs = r.h * .075;
-      ctx.font = `600 ${fs}px ${FONT_BODY}`;
+      ctx.font = `${WEIGHT.LABEL} ${fs}px ${FONT_BODY}`;
       const tw = ctx.measureText(photo.label.toUpperCase()).width;
       const bw = tw + fs * 1.1, bx = -r.w/2 + r.w*.02, by = -r.h/2 + r.h*.025;
       ctx.fillStyle = rgba(pal.deep, .88);
@@ -671,7 +687,7 @@ export async function renderCover(canvas, state) {
       ctx.fillText(photo.label.toUpperCase(), bx + fs * .5, by + fs * .6);
       if (photo.time) {
         ctx.fillStyle = rgba(pal.glow, .9);
-        ctx.font = `400 ${fs * .72}px ${FONT_BODY}`;
+        ctx.font = `${WEIGHT.BODY} ${fs * .72}px ${FONT_BODY}`;
         ctx.fillText(photo.time.toUpperCase(), bx + fs * .5, by + fs * 1.25);
       }
       ctx.restore();
@@ -707,8 +723,8 @@ export async function renderCover(canvas, state) {
     const quote = (state.quote || "A fever dream in neon").toUpperCase();
     ctx.save();
     ctx.font = `600 ${qs}px ${FONT_BODY}`;
-    const qw = ctx.measureText(`— THE COAST HERALD  ·  ${quote}`).width;
-    const totalW = state.stars * starSize * 1.25 + qw + qs;
+    const quoteWidth = ctx.measureText(`— THE COAST HERALD  ·  ${quote}`).width;
+    const totalW = state.stars * starSize * 1.25 + quoteWidth + qs;
     const sx0 = cxTitle - totalW / 2;
     drawStars(ctx, sx0, stripY, state.stars, state.stars, starSize, pal.glow, "rgba(255,255,255,.35)");
     ctx.font = `600 ${qs}px ${FONT_BODY}`;
@@ -731,7 +747,7 @@ export async function renderCover(canvas, state) {
   }
   outlineText(ctx, (state.title || "VICE STATE").toUpperCase(), cxTitle, titleY, titleSize, pal, Math.round(titleSize * .045), titleMax);
   if (state.subtitle) {
-    scriptText(ctx, state.subtitle, cxTitle + titleSize * .3, titleY + titleSize * .36, titleSize * .34, pal);
+    scriptText(ctx, state.subtitle, cxTitle + titleSize * .3, titleY + titleSize * .36, titleSize * .34, pal, titleSize * .05);
   }
 
   // --- original seal badge (our own mark, no game logo) ---
