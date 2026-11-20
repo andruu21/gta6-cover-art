@@ -786,10 +786,18 @@ export async function renderCover(canvas, state) {
   drawSealBadge(ctx, seal, pal);
   const band = bannerBand(ctx, W, H, pal, seal);
   ctx.fillStyle = "#ffe9f7";
-  ctx.font = `600 ${band.bh * .3}px ${FONT_BODY}`;
+  const tagText = (state.tagline || "ONE COAST · NO RULES · COMING SOON").toUpperCase();
+  // clamp the tagline to the banner: shrink the font until the text fits the
+  // space between the seal and the sun icon instead of overflowing the band
+  const tagMaxW = (isTall ? W * .9 : W * .62) - band.bh * 1.4;
+  let tagFs = band.bh * .3;
+  ctx.font = `600 ${tagFs}px ${FONT_BODY}`;
+  while (tagFs > 8 && ctx.measureText(tagText).width > tagMaxW) {
+    tagFs *= 0.94;
+    ctx.font = `600 ${tagFs}px ${FONT_BODY}`;
+  }
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   const tagX = isTall ? W / 2 : W * .68;
-  const tagText = (state.tagline || "ONE COAST · NO RULES · COMING SOON").toUpperCase();
   // sun icon sits left of the tagline
   ctx.save();
   const tw2 = ctx.measureText(tagText).width;
