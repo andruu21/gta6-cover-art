@@ -1,15 +1,15 @@
 // Vice State cover renderer — draws the multi-panel poster onto a canvas.
 // Everything here is original canvas drawing: procedural sky, tilted photo
 // panels with drop shadows, colour grading, extruded neon lettering, badges.
-// No Rockstar assets, no external images — fonts come from app/fonts/ (OFL).
+// No Rockstar assets, no external images — system font stacks only.
 //
 // v4 improvement pass: a halation pass sweeps two soft warm radial streaks in
 // from the TOP CORNERS (not just the top-left), two of the smallest panels get
 // a tilted rounded sticker chip carrying a palm glyph, and the whole grade is
 // a touch warmer because the sky's hot stop now gets an extra alpha boost.
 
-import { FONT_TITLE, FONT_BODY, FONT_SCRIPT, loadFonts, defaultFontStack } from "./fonts.js";
-export { loadFonts, defaultFontStack };
+import { FONT_DISPLAY, FONT_BODY, defaultFontStack } from "./fonts.js";
+export { defaultFontStack };
 
 // ---------- colour palettes ----------
 const PALETTES = {
@@ -288,10 +288,10 @@ function panelShadow(ctx, rect, pal) {
 // Shrink the font size until the text fits maxW, so a long caption can never
 // overflow the poster or collide with the seal badge.
 function fitTitleSize(ctx, text, size, maxW, weight = "") {
-  ctx.font = `${weight}${Math.round(size)}px ${FONT_TITLE}`;
+  ctx.font = `${weight}${Math.round(size)}px ${FONT_DISPLAY}`;
   while (size > 10 && ctx.measureText(text).width > maxW) {
     size *= 0.94;
-    ctx.font = `${weight}${Math.round(size)}px ${FONT_TITLE}`;
+    ctx.font = `${weight}${Math.round(size)}px ${FONT_DISPLAY}`;
   }
   return size;
 }
@@ -299,7 +299,7 @@ function fitTitleSize(ctx, text, size, maxW, weight = "") {
 function outlineText(ctx, text, cx, y, size, pal, extrude, maxW) {
   ctx.save();
   size = fitTitleSize(ctx, text, size, maxW);
-  ctx.font = `${Math.round(size)}px ${FONT_TITLE}`;
+  ctx.font = `${Math.round(size)}px ${FONT_DISPLAY}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   // extruded shadow layers (down-right)
@@ -337,7 +337,7 @@ function outlineText(ctx, text, cx, y, size, pal, extrude, maxW) {
 
 function scriptText(ctx, text, cx, y, size, pal) {
   ctx.save();
-  ctx.font = `${size}px ${FONT_SCRIPT}`;
+  ctx.font = `${size}px ${FONT_BODY}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   ctx.lineWidth = size * .22;
@@ -593,7 +593,6 @@ function lightLeakPass(ctx, W, H, pal, rand) {
 // state: { title, subtitle, tagline, quote, stars, palette, seed, size, template,
 //          photos: [{img, zoom, ox, oy, label, time}...] }
 export async function renderCover(canvas, state) {
-  await loadFonts();
   const [W, H] = SIZES[state.size] || SIZES["1920 x 1080"];
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");

@@ -12,7 +12,7 @@
 * { box-sizing: border-box; }
 body {
   margin: 0;
-  font-family: "Oswald", Arial, sans-serif;
+  font-family: Helvetica Neue, Arial, sans-serif;
   background: radial-gradient(1200px 700px at 20% -10%, #3a1050 0%, var(--bg) 55%);
   color: var(--text);
   min-height: 100vh;
