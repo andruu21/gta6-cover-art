@@ -20,6 +20,27 @@ requests — plain static files under `app/`, every pixel drawn on a canvas. Pho
 your machine. The two sample photos under `app/samples/` were made with an image model for
 make.fun and are free to use.
 
+To build the release dossier (the app plus preview screenshots plus `dossier.json`) run:
+
+```sh
+node --experimental-strip-types main.ts          # writes to /output inside the grader
+MAKEFUN_OUTPUT_DIR=./out node --experimental-strip-types main.ts   # anywhere else
+```
+
+## The studio
+
+The page is a single dark-vice themed screen with three zones:
+
+- the **cover canvas** — the live poster, fully interactive (drag to reposition a photo,
+  wheel to zoom, double-click to reset a crop);
+- the **look controls** — caption fields (title, script subtitle, footer tagline, critic
+  quote, wanted stars) and the five-colour grade picker;
+- the **panel strip** — one card per photo panel, each with its own file picker, zoom slider
+  and reset button; the active card glows with the theme's `--accent-soft` accent.
+
+Everything renders on one canvas: the sky, the panels, the lettering, the grain. There is no
+DOM compositing and no image pipeline — `cover.js` paints the whole poster frame by frame.
+
 ## What's new in v4
 
 - **Corner halation sweeps** — two soft warm radial streaks sweep in from the top corners and
@@ -40,11 +61,14 @@ make.fun and are free to use.
 
 | file | role |
 | --- | --- |
+| `main.ts` | build entry: copies `app/` and `screenshots/` into the output dir and writes `dossier.json` through the vendored make.fun helper |
+| `serve.ts` | zero-dependency static server for the studio (`node serve.ts --port 8080`) |
 | `app/index.html` | the studio page: preview canvas, caption and look controls, panel strip |
 | `app/src/main.js` | the editor: photo loading, drag/wheel crop, double-click reset, localStorage persistence, PNG export |
 | `app/src/cover.js` | the renderer: procedural sunset sky, tilted photo panels, palm-glyph sticker chips and torn-paper accents, corner halation sweeps, extruded neon lettering, film grain finish |
 | `app/src/fonts.js` | loads the app's OFL-licensed fonts (Anton, Oswald) with probe-verified readiness |
 | `app/style.css` | the studio's dark-vice theme |
+| `screenshots/` | four preview renders of the poster in wide, portrait and square sizes plus the editor |
 
 ## Features
 
@@ -63,8 +87,7 @@ make.fun and are free to use.
   edge — all seed-deterministic, so a poster always redraws identically.
 - **Everything is local** — the poster autosaves to your browser's localStorage (captions, look
   and crops come back on reload; photo files are not persisted); nothing is ever uploaded.
-- **Fast export** — one click (or the <kbd>E</kbd> key) writes a PNG at the selected size; the
-  active panel card's glow uses the theme's `--accent-soft` CSS token.
+- **Fast export** — one click (or the <kbd>E</kbd> key) writes a PNG at the selected size.
 
 Keyboard: <kbd>[</kbd>/<kbd>]</kbd> step panels · <kbd>N</kbd> random poster · <kbd>R</kbd>
 reshuffles the sky · <kbd>E</kbd> exports · double-click a panel resets its crop.
