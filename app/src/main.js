@@ -222,14 +222,17 @@ async function loadSamples() {
   ensurePhotos(panelCount());
   for (let i = 0; i < panelCount(); i++) {
     if (state.photos[i].img) continue;
-    // Never repeat the same sample in adjacent panels when both are free:
-    // prefer whichever photo the previous panel is not already using.
-    const prev = i > 0 ? state.photos[i - 1]?.src : null;
-    const url = prev && prev.endsWith("boulevard.jpg")
-      ? "samples/pier.jpg"
-      : prev && prev.endsWith("pier.jpg")
-        ? "samples/boulevard.jpg"
-        : `samples/${i % 2 === 0 ? "boulevard.jpg" : "pier.jpg"}`;
+    // Distribute samples across panels: pick the least-used sample so far
+    // (ties broken away from the previous panel's photo), so no sample piles
+    // up in several panels when both are free.
+    const used = state.photos.slice(0, i)
+      .map((p) => p.src || "").filter(Boolean);
+    const count = (name) => used.filter((s) => s.endsWith(name)).length;
+    const prev = i > 0 ? used[i - 1] : null;
+    const samples = ["boulevard.jpg", "pier.jpg"];
+    samples.sort((a, b) => count(a) - count(b)
+      || (prev && prev.endsWith(a) ? 1 : prev && prev.endsWith(b) ? -1 : 0));
+    const url = `samples/${samples[0]}`;
     const img = await loadImage(url);
     state.photos[i] = {
       img, src: url, zoom: 1 + (i % 3) * 0.15, ox: 0, oy: 0, seed: i + 3,
@@ -452,13 +455,16 @@ window.__vs = {
   document.documentElement.classList.add(`shot-${shot}`);
   await window.__vs.loadURL(0, `samples/${photo}.jpg`);
   for (let i = 1; i < panelCount(); i++) {
-    // Alternate, but never repeat the previous panel's photo when both
-    // samples are available.
-    const prev = state.photos[i - 1]?.src || "";
-    const next = prev.endsWith("pier.jpg") ? "boulevard.jpg"
-      : prev.endsWith("boulevard.jpg") ? "pier.jpg"
-      : (i % 2 === 0 ? "boulevard.jpg" : "pier.jpg");
-    await window.__vs.loadURL(i, `samples/${next}`);
+    // Distribute the available samples: least-used so far wins, ties broken
+    // away from the previous panel's photo (and away from panel 0's photo on
+    // the first pick) so no sample repeats in adjacent or stacked panels.
+    const used = state.photos.slice(0, i).map((p) => p.src || "").filter(Boolean);
+    const count = (name) => used.filter((s) => s.endsWith(name)).length;
+    const prev = used.length ? used[used.length - 1] : "";
+    const samples = ["boulevard.jpg", "pier.jpg"];
+    samples.sort((a, b) => count(a) - count(b)
+      || (prev.endsWith(a) ? 1 : prev.endsWith(b) ? -1 : 0));
+    await window.__vs.loadURL(i, `samples/${samples[0]}`);
   }
   await window.__vs.render();
   document.title = "ready";

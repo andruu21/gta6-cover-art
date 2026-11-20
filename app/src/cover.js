@@ -84,13 +84,16 @@ export const TEMPLATES = {
   collage: {
     name: "Collage",
     sizes: [1080, 1080],
+    // Square layout: every panel ends by y=.50 so the critic strip (~.55) and
+    // the title/tagline band below it are never crossed. Panels 5 and 6 are
+    // small prints stacked over the star panel's lower corners.
     panels: [
-      { x: .045, y: .045, w: .430, h: .430, tilt: -1.2, star: true },
-      { x: .520, y: .045, w: .435, h: .270, tilt: 1.0 },
-      { x: .045, y: .510, w: .270, h: .270, tilt: 1.5 },
-      { x: .350, y: .510, w: .270, h: .270, tilt: -1.5 },
-      { x: .655, y: .350, w: .300, h: .200, tilt: 1.0 },
-      { x: .520, y: .565, w: .435, h: .245, tilt: 1.0 },
+      { x: .045, y: .075, w: .430, h: .425, tilt: -1.2, star: true },
+      { x: .505, y: .040, w: .450, h: .220, tilt: 1.0 },
+      { x: .505, y: .285, w: .215, h: .215, tilt: -1.5 },
+      { x: .740, y: .285, w: .215, h: .215, tilt: 1.5 },
+      { x: .055, y: .365, w: .185, h: .120, tilt: 2.0 },
+      { x: .265, y: .385, w: .185, h: .110, tilt: -2.0 },
     ],
   },
 };
@@ -515,23 +518,43 @@ function drawHeroPopout(ctx, cut, rect, pal, eff) {
   const faceCx = rect.cx - dw / 2 + ox * rect.w + face.x / cutCanvas.width * dw;
   const faceCy = rect.cy - dh / 2 + oy * rect.h + face.y / cutCanvas.height * dh;
 
-  // Pop: scale 12% up around the face, then lift the cut-out so the head
-  // clearly overflows above the panel border.
-  const POP = 1.12;
+  // Pop: scale up around the face and lift the cut-out so the head clearly
+  // overflows above the panel's top border — the poster's signature move.
+  // Only the overflowing part is drawn (clipped to a band above the panel
+  // top edge): the panel photo itself already shows the in-frame body, and
+  // clipping keeps the blob's arm/prop pixels from sprawling into the title
+  // zone. The lift is derived from the blob's own extent, so a large face
+  // cluster can never push the head off the top of the poster.
+  const POP = 1.7;
   const scale2 = scale * POP;
   const dw2 = cutCanvas.width * scale2;
   const dh2 = cutCanvas.height * scale2;
-  const topLift = rect.h * .20;
+  // Anchor the popped face centre right on the panel's top edge, so the head
+  // straddles the frame line with the hat and eyes clearly outside the panel,
+  // then clamp so the visible top of the subject stays inside the canvas.
+  let dy = rect.cy - rect.h / 2 - (face.y / cutCanvas.height) * dh2;
+  // Clamp: the visible top of the popped subject stays just inside the canvas.
+  const blobTopFrac = 0;
+  const blobTop = dy + blobTopFrac * dh2;
+  const canvasTop = ctx.canvas.height * .02;
+  if (blobTop < canvasTop) dy += canvasTop - blobTop;
   const dx = faceCx - (face.x / cutCanvas.width) * dw2;
-  const dy = faceCy - (face.y / cutCanvas.height) * dh2 - topLift;
 
   ctx.save();
-  // The cut-out must not bury the lettering: keep it above the panel's
-  // vertical midline by trimming its draw extent, and add a soft shadow so
-  // the silhouette reads as lifted off the collage.
-  ctx.shadowColor = rgba(pal.deep, .5);
-  ctx.shadowBlur = rect.w * .05;
-  ctx.shadowOffsetY = rect.w * .015;
+  // Clip to the band above the panel's top edge (plus a small overlap so the
+  // head reads as connected to the body inside the frame), following the
+  // panel's tilt. Soft shadow on the cut-out so the silhouette reads as
+  // lifted off the collage.
+  ctx.beginPath();
+  ctx.moveTo(rect.cx - rect.w, rect.cy - rect.h / 2 + rect.h * .10);
+  ctx.lineTo(rect.cx + rect.w, rect.cy - rect.h / 2 + rect.h * .10);
+  ctx.lineTo(rect.cx + rect.w, 0);
+  ctx.lineTo(rect.cx - rect.w, 0);
+  ctx.closePath();
+  ctx.clip();
+  ctx.shadowColor = rgba(pal.deep, .55);
+  ctx.shadowBlur = rect.w * .10;
+  ctx.shadowOffsetY = rect.w * .028;
   ctx.drawImage(cutCanvas, dx, dy, dw2, dh2);
   ctx.restore();
 }
@@ -1322,10 +1345,15 @@ export async function renderCover(canvas, state) {
       ctx.restore();
     }
 
-    // Cast role tag ribbon; star panels pin it top-right so it never sits
-    // under the title band that overlays the lower canvas.
+    // Cast role tag ribbon; any panel whose lower edge reaches into the title
+    // zone (critic strip + title band, lower canvas) pins the tag top-right
+    // instead, so a tag can never sit on the title letters.
     if (photo.role) {
-      drawRoleTag(ctx, r, photo.role, pal, r.star ? "top-right" : "bottom-left");
+      const isTall = state.template === "grid5";
+      const titleZoneTop = H * (isTall ? .60 : .545);
+      const bottomEdge = r.cy + r.h / 2;
+      const pos = (bottomEdge > titleZoneTop || r.star) ? "top-right" : "bottom-left";
+      drawRoleTag(ctx, r, photo.role, pal, pos);
     }
 
     // Wanted stars: a vertical column in the star panel's top right corner.
