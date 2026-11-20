@@ -10,6 +10,10 @@ import { renderCover, exportPNG, TEMPLATES, PALETTE_NAMES } from "./cover.js";
 
 const STORE_KEY = "vice-state-poster-v4";
 
+const DEFAULT_ROLES = [
+  "Protagonist", "Partner", "Antagonist", "Ally", "Wildcard", "Ally",
+];
+
 const state = {
   title: "VICE STATE",
   subtitle: "Neon Tide",
@@ -20,7 +24,7 @@ const state = {
   template: "hero",
   size: "1920 x 1080",
   seed: 7,
-  photos: [], // per panel: {img|null, src, zoom, ox, oy, label, time, seed}
+  photos: [], // per panel: {img|null, src, zoom, ox, oy, label, time, seed, role}
 };
 
 const canvas = document.getElementById("preview");
@@ -39,7 +43,7 @@ function saveState() {
       ...state,
       photos: state.photos.map((ph) => ({
         zoom: ph.zoom, ox: ph.ox, oy: ph.oy,
-        label: ph.label || "", time: ph.time || "", src: null,
+        label: ph.label || "", time: ph.time || "", role: ph.role || "", src: null,
       })),
     };
     localStorage.setItem(STORE_KEY, JSON.stringify(plain));
@@ -62,6 +66,7 @@ function restoreState() {
         ox: Number.isFinite(ph.ox) ? ph.ox : 0,
         oy: Number.isFinite(ph.oy) ? ph.oy : 0,
         label: ph.label || "", time: ph.time || "",
+        role: ph.role || DEFAULT_ROLES[i] || "",
       }));
     }
     return true;
@@ -82,6 +87,7 @@ function ensurePhotos(n) {
     state.photos.push({
       img: null, src: null, zoom: 1, ox: 0, oy: 0,
       label: "", time: "", seed: state.photos.length + 3,
+      role: DEFAULT_ROLES[state.photos.length] || "",
     });
   }
 }
@@ -138,7 +144,13 @@ function buildPanelStrip() {
     timeIn.placeholder = "Time note";
     timeIn.value = ph.time || "";
     timeIn.addEventListener("input", (e) => { ph.time = e.target.value; schedule(); });
-    meta.append(labelIn, timeIn);
+    const roleIn = document.createElement("input");
+    roleIn.className = "role-in";
+    roleIn.placeholder = "Cast role (e.g. Antagonist)";
+    roleIn.value = ph.role || "";
+    roleIn.setAttribute("list", "role-options");
+    roleIn.addEventListener("input", (e) => { ph.role = e.target.value; schedule(); });
+    meta.append(labelIn, timeIn, roleIn);
 
     const zoomRow = document.createElement("div");
     zoomRow.className = "panel-zoom";
@@ -198,6 +210,7 @@ function loadPhotoFile(file, i) {
       img, src: url, zoom: 1, ox: 0, oy: 0, seed: i + 3,
       label: state.photos[i]?.label || file.name.replace(/\.[^.]+$/, ""),
       time: state.photos[i]?.time || "",
+      role: state.photos[i]?.role || DEFAULT_ROLES[i] || "",
     };
     buildPanelStrip();
     schedule();
@@ -215,6 +228,7 @@ async function loadSamples() {
       img, src: url, zoom: 1 + (i % 3) * 0.15, ox: 0, oy: 0, seed: i + 3,
       label: state.photos[i].label || (i === 0 ? "Ocean Drive" : "Vice Pier"),
       time: state.photos[i].time || (i === 0 ? "GOLDEN HOUR" : "BLUE HOUR"),
+      role: state.photos[i].role || DEFAULT_ROLES[i] || "",
     };
   }
   buildPanelStrip();
@@ -375,6 +389,7 @@ window.__vs = {
       img, src: url, zoom: 1, ox: 0, oy: 0, seed: i + 3,
       label: state.photos[i]?.label || "",
       time: state.photos[i]?.time || "",
+      role: state.photos[i]?.role || DEFAULT_ROLES[i] || "",
     };
     buildPanelStrip();
     await renderCover(canvas, state);
@@ -387,3 +402,23 @@ window.__vs = {
   randomize,
   resetPanelCrop,
 };
+
+// ---------- screenshot mode (?shot=...) ----------
+// Headless capture harness: loads the sample photo named by ?photo= into every
+// panel, applies ?caption= to the title, renders, and stamps
+// document.title="ready" when the canvas is final. No network, samples only.
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const shot = params.get("shot");
+  if (!shot) return;
+  const photo = params.get("photo") || "pier";
+  const caption = params.get("caption");
+  if (caption) state.title = caption;
+  document.documentElement.classList.add(`shot-${shot}`);
+  await window.__vs.loadURL(0, `samples/${photo}.jpg`);
+  for (let i = 1; i < panelCount(); i++) {
+    await window.__vs.loadURL(i, `samples/${i % 2 === 0 ? "boulevard.jpg" : "pier.jpg"}`);
+  }
+  await window.__vs.render();
+  document.title = "ready";
+})();
