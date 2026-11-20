@@ -1147,6 +1147,15 @@ export async function renderCover(canvas, state) {
   cloudBand(ctx, W, H, pal, rand, H * .30, 7, .35);
   cloudBand(ctx, W, H, pal, rand, H * .16, 4, .22);
   skylineBand(ctx, W, H, pal, rand, H * .78, H * .22, blend(pal.top, "#000000", .2), .8);
+  // Frame-side palm silhouettes: tall, dark, leaning in from both edges so
+  // the poster reads as a tropical poster even before the banner band.
+  {
+    const dark = blend(pal.deep, "#000000", .35);
+    palmSilhouette(ctx, W * .015, H * .92, H * .55, .10, rgba(dark, .9));
+    palmSilhouette(ctx, W * .075, H * .95, H * .38, -.12, rgba(dark, .8));
+    palmSilhouette(ctx, W * .965, H * .93, H * .50, -.09, rgba(dark, .9));
+    palmSilhouette(ctx, W * .92, H * .965, H * .34, .12, rgba(dark, .8));
+  }
 
   // Templates.
   const tpl = TEMPLATES[state.template] || TEMPLATES.hero;
@@ -1179,6 +1188,8 @@ export async function renderCover(canvas, state) {
 
   rects.forEach((r, i) => {
     const photo = (state.photos && state.photos[i]) || {};
+    // Quality bar: never ship an empty frame — panels without a photo get a
+    // seeded procedural sky-art fill, never the bare gradient.
     drawPanelPhoto(ctx, photo.img || null, r, photo, fills[i % fills.length], pal);
 
     // Frame: dark outline plus an inner white hairline.
@@ -1363,14 +1374,15 @@ export async function renderCover(canvas, state) {
   ctx.textBaseline = "middle";
   ctx.fillText(tagline, tagX, band.y0 + band.bh * .58);
 
-  // Small print along the very bottom edge.
-  ctx.fillStyle = "rgba(255,255,255,.55)";
-  ctx.font = `400 ${H * .011}px ${FONT_BODY}`;
+  // Small print along the very bottom edge — the credits strip.
+  ctx.fillStyle = "rgba(255,255,255,.6)";
+  ctx.font = `400 ${H * .012}px ${FONT_BODY}`;
   ctx.textAlign = "left";
-  ctx.fillText(
-    `${(state.title || "VICE STATE").toUpperCase()} · MADE WITH YOUR OWN PHOTOS · GRADED IN YOUR BROWSER`,
-    W * .02, H - H * .008,
-  );
+  ctx.textBaseline = "alphabetic";
+  const credits = `A ${pal.name.toUpperCase()} PICTURE  ·  DIRECTED BY YOU  ·  SHOT ON THE COAST  ·  ${(state.title || "VICE STATE").toUpperCase()}  ·  GRADED IN YOUR BROWSER  ·  NO UPLOADS, EVER`;
+  ctx.fillText(credits, W * .02, H - H * .008);
+  ctx.textAlign = "right";
+  ctx.fillText("© 2026 VICE STATE PRODUCTIONS", W - W * .02, H - H * .008);
 
   // Outer border, drawn before the finishing passes so it sits under the grade.
   const border = H * .012;
