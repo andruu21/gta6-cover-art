@@ -284,10 +284,96 @@ function skylineBand(ctx, W, H, pal, rand, yBase, hMax, color, alpha) {
   ctx.restore();
 }
 
+// ------------------------------------------------- photo analysis (on-device)
+
+// Skin-tone pass over a downscaled copy of the photo: YCbCr ranges plus the
+// classic RGB rules, so it runs offline on any canvas backend. Returns
+// { face, mask, mw, mh } with face = {x, y, r} in IMAGE pixels (centre and
+// radius of the upper — i.e. face — skin cluster) and mask a Uint8Array over
+// the downscaled grid, or null when nothing resembling skin is found.
+export function analyzePhoto(img) {
+  try {
+    const mw = 96;
+    const mh = Math.max(8, Math.round(img.height * mw / img.width));
+    const c = document.createElement("canvas");
+    c.width = mw; c.height = mh;
+    const cx2 = c.getContext("2d", { willReadFrequently: true });
+    cx2.drawImage(img, 0, 0, mw, mh);
+    const data = cx2.getImageData(0, 0, mw, mh).data;
+
+    const mask = new Uint8Array(mw * mh);
+    const rowHits = new Int32Array(mh);
+    let minX = mw, minY = mh, maxX = -1, maxY = -1;
+    for (let y = 0; y < mh; y++) {
+      for (let x = 0; x < mw; x++) {
+        const i = y * mw + x;
+        const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+        const cb = 128 - .169 * r - .331 * g + .5 * b;
+        const cr = 128 + .5 * r - .419 * g - .081 * b;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        const rgbRule = r > 95 && g > 40 && b > 20 && mx - mn > 15
+          && Math.abs(r - g) > 12 && r > g && r > b;
+        const ycc = cr >= 136 && cr <= 178 && cb >= 80 && cb <= 128;
+        if (rgbRule && ycc && mx > 70) {
+          mask[i] = 1;
+          rowHits[y]++;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0 || maxY - minY < 2) return null;
+
+    // Face = the top skin band (first rows that carry skin, up to ~35% of the
+    // skin bbox height); its centroid is the crop anchor.
+    const bandRows = Math.max(2, Math.round((maxY - minY) * .35));
+    let sx = 0, sy = 0, n = 0, top = -1;
+    for (let y = minY; y <= maxY && y <= minY + bandRows; y++) {
+      if (rowHits[y] <= 0) continue;
+      if (top < 0) top = y;
+      for (let x = 0; x < mw; x++) {
+        if (mask[y * mw + x]) {
+          sx += x; sy += y; n++;
+        }
+      }
+    }
+    if (n < 6) return null;
+    const fcx = (sx / n + .5) * img.width / mw;
+    const fcy = (sy / n + .5) * img.height / mh;
+    const r = Math.max((maxX - minX), (maxY - minY)) * .5 * img.width / mw;
+    return {
+      face: { x: fcx, y: fcy, r },
+      bbox: { minX, minY, maxX, maxY },
+      mask, mw, mh,
+    };
+  } catch {
+    return null; // tainted canvas or exotic backend — degrade silently
+  }
+}
+
+// Face-aware auto crop: offsets (panel fractions) that put the detected face
+// at fx/fy of the panel (default upper-middle, away from any title zone) —
+// or null when there is no face or the user has panned manually.
+export function faceCropOffsets(img, rect, photo, fx = .5, fy = .38) {
+  const an = photo.face || (photo.img === img ? analyzePhoto(img) : null);
+  if (!an) return null;
+  if (Math.abs(photo.ox || 0) > .01 || Math.abs(photo.oy || 0) > .01) return null;
+  const scale = Math.max(rect.w / img.width, rect.h / img.height) * (photo.zoom || 1);
+  const dw = img.width * scale, dh = img.height * scale;
+  const ox = (fx - an.face.x / img.width) * dw / rect.w;
+  const oy = ((fy - .5) * rect.h + dh / 2 - an.face.y / img.height * dh) / rect.h;
+  return { ox, oy, face: an.face };
+}
+
 // ----------------------------------------------------------- photo panels
 
 // Draw one photo (or its procedural stand-in) inside a tilted rounded rect.
 // `photo` carries zoom plus ox/oy offsets in fractions of the panel box.
+// When the user has not panned the photo and a face is detected, the crop is
+// biased so the face sits in the upper-middle of the panel, clear of the
+// title zone that overlays lower panels.
 function drawPanelPhoto(ctx, img, rect, photo, grad, pal) {
   const { w, h } = rect;
   ctx.save();
@@ -298,15 +384,19 @@ function drawPanelPhoto(ctx, img, rect, photo, grad, pal) {
   ctx.clip();
 
   if (img) {
-    const scale = Math.max(w / img.width, h / img.height) * (photo.zoom || 1);
+    const auto = faceCropOffsets(img, rect, photo);
+    const eff = auto
+      ? { zoom: photo.zoom || 1, ox: auto.ox, oy: auto.oy }
+      : photo;
+    const scale = Math.max(w / img.width, h / img.height) * (eff.zoom || 1);
     const dw = img.width * scale;
     const dh = img.height * scale;
     // Clamp the pan offsets to the cover-fit slack so a hard drag can never
     // pull an edge of the photo inside the frame and expose the backdrop.
     const slackX = Math.max(0, (dw - w) / 2) / w;
     const slackY = Math.max(0, (dh - h) / 2) / h;
-    const ox = Math.min(slackX, Math.max(-slackX, photo.ox || 0));
-    const oy = Math.min(slackY, Math.max(-slackY, photo.oy || 0));
+    const ox = Math.min(slackX, Math.max(-slackX, eff.ox || 0));
+    const oy = Math.min(slackY, Math.max(-slackY, eff.oy || 0));
     ctx.drawImage(img, -dw / 2 + ox * w, -dh / 2 + oy * h, dw, dh);
 
     // Warm light from the lower left, matching the sun behind the collage.
