@@ -292,7 +292,13 @@ function drawPanelPhoto(ctx, img, rect, photo, grad, pal) {
     const scale = Math.max(w / img.width, h / img.height) * (photo.zoom || 1);
     const dw = img.width * scale;
     const dh = img.height * scale;
-    ctx.drawImage(img, -dw / 2 + (photo.ox || 0) * w, -dh / 2 + (photo.oy || 0) * h, dw, dh);
+    // Clamp the pan offsets to the cover-fit slack so a hard drag can never
+    // pull an edge of the photo inside the frame and expose the backdrop.
+    const slackX = Math.max(0, (dw - w) / 2) / w;
+    const slackY = Math.max(0, (dh - h) / 2) / h;
+    const ox = Math.min(slackX, Math.max(-slackX, photo.ox || 0));
+    const oy = Math.min(slackY, Math.max(-slackY, photo.oy || 0));
+    ctx.drawImage(img, -dw / 2 + ox * w, -dh / 2 + oy * h, dw, dh);
 
     // Warm light from the lower left, matching the sun behind the collage.
     const rim = ctx.createRadialGradient(-w * .32, h * .42, w * .05, -w * .32, h * .42, w * .95);
