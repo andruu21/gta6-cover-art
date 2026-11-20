@@ -377,25 +377,40 @@ export function cutoutSubject(img) {
     const an = analyzePhoto(img);
     if (!an) return null;
     const { mask, mw, mh, face } = an;
-
-    // Grown mask: flood from the skin pixels across "probably subject"
-    // pixels — anything not reading as sky/sea, foliage or deep shadow —
-    // so face, neck and shirt come out as one blob.
-    const mwMh = mw * mh;
-    const grown = new Uint8Array(mwMh);
-    const queue = [];
-    for (let i = 0; i < mwMh; i++) {
-      if (mask[i]) { grown[i] = 1; queue.push(i); }
-    }
     const data = an.data; // downscaled RGBA from analyzePhoto()
     if (!data) return null;
+
+    // Skin-tone reference from the face cluster (mean YCbCr of skin pixels).
+    const mwMh = mw * mh;
+    let sr = 0, sg = 0, sb = 0, sn = 0;
+    for (let i = 0; i < mwMh; i++) {
+      if (mask[i]) {
+        sr += data[i * 4]; sg += data[i * 4 + 1]; sb += data[i * 4 + 2]; sn++;
+      }
+    }
+    if (!sn) return null;
+    sr /= sn; sg /= sn; sb /= sn;
+
+    // Candidate test: reject background — blue/green dominance (sky, sea,
+    // foliage) and pixels too far from the subject's own skin tone. Warm
+    // brick, sand, wood, hair highlights all pass; cool pavement dies.
     const isCandidate = (i) => {
       const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
       if (b > r + 18 && b > g + 8) return false; // sky / sea
       if (g > r + 14 && g > b + 8) return false; // foliage
       if (r + g + b < 90) return false;          // deep shadow
+      const dr = r - sr, dg = g - sg, db = b - sb;
+      if (dr * dr + dg * dg + db * db > 20000) return false;
       return true;
     };
+
+    // Flood from the skin pixels across candidate pixels, so the cut-out is
+    // one connected subject blob: face, neck, shirt, arms.
+    const grown = new Uint8Array(mwMh);
+    const queue = [];
+    for (let i = 0; i < mwMh; i++) {
+      if (mask[i]) { grown[i] = 1; queue.push(i); }
+    }
     let head = 0;
     while (head < queue.length) {
       const i = queue[head++];
@@ -425,9 +440,26 @@ export function cutoutSubject(img) {
       grown.set(next);
     }
 
-    // Render at a workable resolution with the mask scaled up and feathered.
-    const workW = 520;
+    // Render the cut-out at a workable resolution. Upscale the mask smoothly
+    // first (box-blur the small grid to 1/4 of work scale), then sample with
+    // bilinear interpolation and feather the alpha so the silhouette has no
+    // hard 8px steps.
+    const workW = 640;
     const workH = Math.max(40, Math.round(img.height * workW / img.width));
+    const kx = workW / mw, ky = workH / mh;
+
+    // Bilinear alpha lookup from the grown mask, with a soft ramp near edges.
+    const alphaAt = (fx, fy) => {
+      const gx = Math.min(mw - 1.001, Math.max(0, fx / kx - .5));
+      const gy = Math.min(mh - 1.001, Math.max(0, fy / ky - .5));
+      const x0 = gx | 0, y0 = gy | 0;
+      const tx = gx - x0, ty = gy - y0;
+      const v00 = grown[y0 * mw + x0], v10 = grown[y0 * mw + x0 + 1];
+      const v01 = grown[(y0 + 1) * mw + x0], v11 = grown[(y0 + 1) * mw + x0 + 1];
+      return (v00 * (1 - tx) + v10 * tx) * (1 - ty)
+        + (v01 * (1 - tx) + v11 * tx) * ty;
+    };
+
     const out = document.createElement("canvas");
     out.width = workW; out.height = workH;
     const octx = out.getContext("2d");
@@ -435,20 +467,13 @@ export function cutoutSubject(img) {
 
     const imgData = octx.getImageData(0, 0, workW, workH);
     const px = imgData.data;
-    const sx = workW / mw, sy = workH / mh;
     for (let y = 0; y < workH; y++) {
       for (let x = 0; x < workW; x++) {
-        // Bilinear-ish sample of the small mask (nearest is fine at 96 wide).
-        const mx = Math.min(mw - 1, (x / sx) | 0);
-        const my = Math.min(mh - 1, (y / sy) | 0);
-        const keep = grown[my * mw + mx];
+        const a = alphaAt(x + .5, y + .5);
         const i = (y * workW + x) * 4;
-        if (!keep) {
-          px[i + 3] = 0;
-        } else if (!mask[my * mw + mx]) {
-          // Non-skin part of the subject: soften the boundary a touch.
-          px[i + 3] = Math.min(px[i + 3], 235);
-        }
+        if (a <= 0) px[i + 3] = 0;
+        else if (a >= 1) px[i + 3] = px[i + 3];
+        else px[i + 3] = px[i + 3] * a;
       }
     }
     octx.putImageData(imgData, 0, 0);
@@ -465,33 +490,49 @@ export function primeCutout(img) {
 }
 
 // Draw the star panel's cut-out subject, scaled past the frame so head and
-// shoulders overflow above the panel border. Called after every panel is
-// framed so the silhouette sits ON TOP of neighbouring art.
-function drawHeroPopout(ctx, cut, rect, pal) {
+// shoulders overflow above the panel border. `eff` carries the same zoom and
+// pan the panel photo was drawn with, so the cut-out lands exactly on the
+// photo's subject instead of doubling it.
+function drawHeroPopout(ctx, cut, rect, pal, eff) {
   if (!cut) return;
   const { canvas: cutCanvas, face } = cut;
-  // Scale: blow the subject up so the face box ends ~22% bigger than the
-  // panel width would suggest — head clearly leaves the frame.
-  const zoom = 1.34;
-  const scale = (rect.w * zoom) / cutCanvas.width;
+  const imgW = cutCanvas.width;
+  const zoom = Math.max(1, (eff && eff.zoom) || 1);
+  void imgW;
+
+  // Map the photo-space placement used by drawPanelPhoto into canvas space:
+  // same cover-fit scale, same auto/manual offsets, then a modest extra pop
+  // (10%) around the face and a lift so the head clears the top edge.
+  const scale = Math.max(rect.w / cutCanvas.width, rect.h / cutCanvas.height) * zoom;
   const dw = cutCanvas.width * scale;
   const dh = cutCanvas.height * scale;
+  const slackX = Math.max(0, (dw - rect.w) / 2) / rect.w;
+  const slackY = Math.max(0, (dh - rect.h) / 2) / rect.h;
+  const ox = Math.min(slackX, Math.max(-slackX, (eff && eff.ox) || 0));
+  const oy = Math.min(slackY, Math.max(-slackY, (eff && eff.oy) || 0));
 
-  // Anchor: keep the detected face at the same relative spot it occupies in
-  // the panel photo, then lift the whole cut-out so the head clears the top
-  // edge by ~18% of the panel height.
-  const relFaceX = face.x / cutCanvas.width;
-  const relFaceY = face.y / cutCanvas.height;
-  const panelFaceX = rect.cx + (rect.w * (.5 - relFaceX)) * zoom * .9;
-  const panelFaceY = rect.cy - rect.h * .18 + (rect.h * (.42 - relFaceY)) * zoom * .9;
-  const dx = panelFaceX - relFaceX * dw;
-  const dy = panelFaceY - relFaceY * dh;
+  // Face anchor in canvas space, matching the photo draw maths.
+  const faceCx = rect.cx - dw / 2 + ox * rect.w + face.x / cutCanvas.width * dw;
+  const faceCy = rect.cy - dh / 2 + oy * rect.h + face.y / cutCanvas.height * dh;
+
+  // Pop: scale 12% up around the face, then lift the cut-out so the head
+  // clearly overflows above the panel border.
+  const POP = 1.12;
+  const scale2 = scale * POP;
+  const dw2 = cutCanvas.width * scale2;
+  const dh2 = cutCanvas.height * scale2;
+  const topLift = rect.h * .20;
+  const dx = faceCx - (face.x / cutCanvas.width) * dw2;
+  const dy = faceCy - (face.y / cutCanvas.height) * dh2 - topLift;
 
   ctx.save();
-  ctx.shadowColor = rgba(pal.deep, .55);
-  ctx.shadowBlur = rect.w * .06;
-  ctx.shadowOffsetY = rect.w * .02;
-  ctx.drawImage(cutCanvas, dx, dy, dw, dh);
+  // The cut-out must not bury the lettering: keep it above the panel's
+  // vertical midline by trimming its draw extent, and add a soft shadow so
+  // the silhouette reads as lifted off the collage.
+  ctx.shadowColor = rgba(pal.deep, .5);
+  ctx.shadowBlur = rect.w * .05;
+  ctx.shadowOffsetY = rect.w * .015;
+  ctx.drawImage(cutCanvas, dx, dy, dw2, dh2);
   ctx.restore();
 }
 
@@ -765,7 +806,7 @@ const ROLE_COLORS = {
   wildcard: ["#b08cff", "#170b2e"],
 };
 
-function drawRoleTag(ctx, rect, role, pal) {
+function drawRoleTag(ctx, rect, role, pal, pos = "bottom-left") {
   if (!role) return;
   const [bg, fg] = ROLE_COLORS[role.toLowerCase()] || [pal.glow, pal.deep];
   const label = role.toUpperCase();
@@ -778,9 +819,18 @@ function drawRoleTag(ctx, rect, role, pal) {
   const tw = ctx.measureText(label).width;
   const padX = fs * .7, tagH = fs * 1.9;
   const tagW = tw + padX * 2;
-  // Hang off the lower-left corner: half outside the frame.
-  const x0 = -rect.w / 2 - tagW * .12;
-  const y0 = rect.h / 2 - tagH * .55;
+  let x0, y0;
+  if (pos === "top-right") {
+    // Star panels: the title band covers the panel's lower edge, so pin the
+    // tag inside the top-right corner, left of the wanted-stars column.
+    const starsColW = rect.h * .052 * 1.5;
+    x0 = rect.w / 2 - starsColW - rect.w * .035 - tagW - rect.w * .03;
+    y0 = -rect.h / 2 + rect.h * .03;
+  } else {
+    // Hang off the lower-left corner: half outside the frame.
+    x0 = -rect.w / 2 - tagW * .12;
+    y0 = rect.h / 2 - tagH * .55;
+  }
 
   ctx.translate(x0 + tagW / 2, y0 + tagH / 2);
   ctx.rotate(-6 * Math.PI / 180);
@@ -813,7 +863,8 @@ function drawRoleTag(ctx, rect, role, pal) {
 
 // Colored angled ribbon under the title carrying the tagline. Returns the
 // ribbon's vertical extent so the caller can keep other art clear of it.
-function drawTaglineRibbon(ctx, text, cx, cy, maxW, pal) {
+function drawTaglineRibbon(ctx, text, cx, cy, maxW, pal, clearX = Infinity, edge = 0,
+  cyMin = 0, cyMax = Infinity) {
   if (!text) return null;
   const label = text.toUpperCase();
   let fs = maxW * .075;
@@ -822,11 +873,26 @@ function drawTaglineRibbon(ctx, text, cx, cy, maxW, pal) {
     fs *= .95;
     ctx.font = `700 ${fs}px ${FONT_DISPLAY}`;
   }
-  const tw = ctx.measureText(label).width;
-  const padX = fs * .9;
-  const rw = tw + padX * 2;
+  let tw = ctx.measureText(label).width;
+  let padX = fs * .9;
   const rh = fs * 1.75;
   const ANGLE = -2.2 * Math.PI / 180;
+  // Vertical clamp: stay clear of the title above and the banner strip below.
+  cy = Math.max(cyMin + rh * .65, Math.min(cy, cyMax - rh * .75));
+  // Never spill past the canvas: the ribbon's half width plus its shadow and
+  // the rotation spread must stay inside the nearest horizontal edge.
+  const slack = Math.min(cx - edge, clearX - cx - edge);
+  let rw = tw + padX * 2;
+  if (rw / 2 > slack) {
+    // Shrink the type, then the padding, until the ribbon clears the edge.
+    while (fs > 9 && tw + padX * 2 > slack * 2) {
+      fs *= .94;
+      ctx.font = `700 ${fs}px ${FONT_DISPLAY}`;
+      tw = ctx.measureText(label).width;
+      padX = fs * .9;
+    }
+    rw = Math.max(fs * 3, tw + padX * 2);
+  }
 
   ctx.save();
   ctx.translate(cx, cy);
@@ -1167,6 +1233,22 @@ export async function renderCover(canvas, state) {
     return { w, h, cx: p.x * W + w / 2, cy: p.y * H + h / 2, tilt: p.tilt, star: !!p.star };
   });
 
+  // --- pop-out hero: the star panel's subject breaks out of its frame ---
+  // Drawn BEFORE the panel shadows so the panels overlap the cut-out's lower
+  // body, but the head still rises above every frame edge.
+  if (state.popout !== false) {
+    const starIdx = rects.findIndex((r) => r.star);
+    const starPhoto = starIdx >= 0 && (state.photos && state.photos[starIdx]);
+    if (starPhoto && starPhoto.img) {
+      const auto = faceCropOffsets(starPhoto.img, rects[starIdx], starPhoto);
+      const eff = auto
+        ? { zoom: starPhoto.zoom || 1, ox: auto.ox, oy: auto.oy }
+        : starPhoto;
+      const cut = cutoutSubject(starPhoto.img);
+      if (cut) drawHeroPopout(ctx, cut, rects[starIdx], pal, eff);
+    }
+  }
+
   rects.forEach((r) => panelShadow(ctx, r, pal));
 
   // Accent plan: the two smallest non-star panels get a palm sticker chip, and
@@ -1240,8 +1322,11 @@ export async function renderCover(canvas, state) {
       ctx.restore();
     }
 
-    // Cast role tag ribbon, lower-left, overlapping the frame edge.
-    if (photo.role) drawRoleTag(ctx, r, photo.role, pal);
+    // Cast role tag ribbon; star panels pin it top-right so it never sits
+    // under the title band that overlays the lower canvas.
+    if (photo.role) {
+      drawRoleTag(ctx, r, photo.role, pal, r.star ? "top-right" : "bottom-left");
+    }
 
     // Wanted stars: a vertical column in the star panel's top right corner.
     if (r.star && state.stars > 0) {
@@ -1268,22 +1353,19 @@ export async function renderCover(canvas, state) {
     }
   });
 
-  // --- pop-out hero: the star panel's subject breaks out of its frame ---
-  if (state.popout !== false) {
-    const starIdx = rects.findIndex((r) => r.star);
-    const starPhoto = starIdx >= 0 && (state.photos && state.photos[starIdx]);
-    if (starPhoto && starPhoto.img) {
-      const cut = primeCutout(starPhoto.img);
-      if (cut) drawHeroPopout(ctx, cut, rects[starIdx], pal);
-    }
-  }
-
   // --- lettering block ---
   const tall = state.template === "grid5";
-  const titleSize = H * (tall ? .105 : .155);
-  const titleY = H * (tall ? .80 : .72);
-  const titleCx = W * (tall ? .5 : .30);
-  const titleMax = W * (tall ? .92 : .60);
+  // Wide layouts: the seal sits at the right, so bias the lettering left of
+  // centre and clamp its box to the safe band between the frame edges.
+  const sealR = H * .075;
+  const titleSize = H * (tall ? .095 : .155);
+  const titleY = H * (tall ? .74 : .72);
+  const titleCx = W * (tall ? .5 : .33);
+  const titleMax = Math.min(
+    W * (tall ? .92 : .60),
+    (titleCx - W * .03) * 2,
+    (W - sealR * 1.5 - titleCx) * 2,
+  );
 
   // Critic strip above the title on the wide layouts.
   if (!tall) {
@@ -1322,12 +1404,18 @@ export async function renderCover(canvas, state) {
     titleCx, titleY, titleSize, pal, Math.round(titleSize * .045), titleMax);
 
   // Tagline ribbon, angled, tucked between the title and the critic strip /
-  // banner. Replaces the plain footer text on wide layouts; the banner keeps
-  // its own small-print pass either way.
+  // banner. It must clear both the bottom banner strip and the seal badge.
   const ribbonText = state.tagline || "ONE COAST · NO RULES · COMING SOON";
+  const tallBandTop = H - H * .13;
+  const ribbonCy = Math.min(
+    titleY + titleSize * (state.subtitle ? .78 : .52),
+    tallBandTop - H * .075,
+  );
   drawTaglineRibbon(ctx, ribbonText,
-    titleCx, titleY + titleSize * (state.subtitle ? .78 : .52),
-    tall ? W * .82 : W * .56, pal);
+    titleCx, ribbonCy,
+    tall ? W * .82 : W * .56, pal,
+    W - sealR * 1.15, sealR * 1.15,
+    titleY + titleSize * .12, tallBandTop);
 
   if (state.subtitle) {
     drawSubtitle(ctx, state.subtitle, titleCx + titleSize * .3,
@@ -1338,7 +1426,7 @@ export async function renderCover(canvas, state) {
   const seal = {
     sx: W * (tall ? .155 : .865),
     sy: H * (tall ? .90 : .862),
-    sealR: H * .075,
+    sealR,
   };
   drawSeal(ctx, seal, pal);
   const band = drawBanner(ctx, W, H, pal);
@@ -1372,7 +1460,19 @@ export async function renderCover(canvas, state) {
   ctx.fillStyle = "#ffe9f7";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(tagline, tagX, band.y0 + band.bh * .58);
+  // The tagline itself lives on the angled ribbon under the title; the banner
+  // carries a supporting release line instead so it never doubles up. Fit it
+  // between the seal and the edges.
+  const bannerLine = (state.quote || "A fever dream in neon").toUpperCase() +
+    "  ·  IN COLOURS THIS LOUD, EVERYONE IS A SUSPECT";
+  let blFs = band.bh * .3;
+  ctx.font = `600 ${blFs}px ${FONT_BODY}`;
+  const blMax = (tall ? W * .86 : W * .58);
+  while (blFs > 8 && ctx.measureText(bannerLine).width > blMax) {
+    blFs *= .94;
+    ctx.font = `600 ${blFs}px ${FONT_BODY}`;
+  }
+  ctx.fillText(bannerLine, tagX, band.y0 + band.bh * .58);
 
   // Small print along the very bottom edge — the credits strip.
   ctx.fillStyle = "rgba(255,255,255,.6)";

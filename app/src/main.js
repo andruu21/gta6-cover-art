@@ -6,7 +6,7 @@
 // localStorage keeps captions, look and crops, and panels fall back to their
 // procedural sky art after a reload until a photo is re-picked.
 
-import { renderCover, exportPNG, TEMPLATES, PALETTE_NAMES } from "./cover.js";
+import { renderCover, exportPNG, TEMPLATES, SIZES, PALETTE_NAMES } from "./cover.js";
 
 const STORE_KEY = "vice-state-poster-v4";
 
@@ -222,12 +222,19 @@ async function loadSamples() {
   ensurePhotos(panelCount());
   for (let i = 0; i < panelCount(); i++) {
     if (state.photos[i].img) continue;
-    const url = `samples/${i % 2 === 0 ? "boulevard.jpg" : "pier.jpg"}`;
+    // Never repeat the same sample in adjacent panels when both are free:
+    // prefer whichever photo the previous panel is not already using.
+    const prev = i > 0 ? state.photos[i - 1]?.src : null;
+    const url = prev && prev.endsWith("boulevard.jpg")
+      ? "samples/pier.jpg"
+      : prev && prev.endsWith("pier.jpg")
+        ? "samples/boulevard.jpg"
+        : `samples/${i % 2 === 0 ? "boulevard.jpg" : "pier.jpg"}`;
     const img = await loadImage(url);
     state.photos[i] = {
       img, src: url, zoom: 1 + (i % 3) * 0.15, ox: 0, oy: 0, seed: i + 3,
-      label: state.photos[i].label || (i === 0 ? "Ocean Drive" : "Vice Pier"),
-      time: state.photos[i].time || (i === 0 ? "GOLDEN HOUR" : "BLUE HOUR"),
+      label: state.photos[i].label || (url.endsWith("pier.jpg") ? "Vice Pier" : "Ocean Drive"),
+      time: state.photos[i].time || (url.endsWith("pier.jpg") ? "BLUE HOUR" : "GOLDEN HOUR"),
       role: state.photos[i].role || DEFAULT_ROLES[i] || "",
     };
   }
@@ -414,10 +421,44 @@ window.__vs = {
   const photo = params.get("photo") || "pier";
   const caption = params.get("caption");
   if (caption) state.title = caption;
+
+  // ?size=1080x1350 (or any "WxH") selects the closest export size, and — for
+  // cover shots — the template built for that aspect, so the poster is
+  // rendered at the target shape instead of being cropped into it.
+  const sizeParam = params.get("size");
+  const m = sizeParam && sizeParam.match(/^(\d+)x(\d+)$/);
+  if (m) {
+    const tw = +m[1], th = +m[2];
+    let best = null, bestD = Infinity;
+    for (const key of Object.keys(SIZES)) {
+      const [w, h] = SIZES[key];
+      const d = Math.abs(w / h - tw / th);
+      if (d < bestD) { bestD = d; best = key; }
+    }
+    if (best) state.size = best;
+    const wanted = params.get("template");
+    if (wanted && TEMPLATES[wanted]) state.template = wanted;
+    else if (shot === "cover") {
+      let tb = null, td = Infinity;
+      for (const [key, tpl] of Object.entries(TEMPLATES)) {
+        const d = Math.abs(tpl.sizes[0] / tpl.sizes[1] - tw / th);
+        if (d < td) { td = d; tb = key; }
+      }
+      if (tb) state.template = tb;
+    }
+    reflectStateToControls();
+    buildPanelStrip();
+  }
   document.documentElement.classList.add(`shot-${shot}`);
   await window.__vs.loadURL(0, `samples/${photo}.jpg`);
   for (let i = 1; i < panelCount(); i++) {
-    await window.__vs.loadURL(i, `samples/${i % 2 === 0 ? "boulevard.jpg" : "pier.jpg"}`);
+    // Alternate, but never repeat the previous panel's photo when both
+    // samples are available.
+    const prev = state.photos[i - 1]?.src || "";
+    const next = prev.endsWith("pier.jpg") ? "boulevard.jpg"
+      : prev.endsWith("boulevard.jpg") ? "pier.jpg"
+      : (i % 2 === 0 ? "boulevard.jpg" : "pier.jpg");
+    await window.__vs.loadURL(i, `samples/${next}`);
   }
   await window.__vs.render();
   document.title = "ready";
