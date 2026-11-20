@@ -63,7 +63,8 @@ make.fun and are free to use.
   edge — all seed-deterministic, so a poster always redraws identically.
 - **Everything is local** — the poster autosaves to your browser's localStorage (captions, look
   and crops come back on reload; photo files are not persisted); nothing is ever uploaded.
-- **Fast export** — one click (or the <kbd>E</kbd> key) writes a PNG at the selected size.
+- **Fast export** — one click (or the <kbd>E</kbd> key) writes a PNG at the selected size; the
+  active panel card's glow uses the theme's `--accent-soft` CSS token.
 
 Keyboard: <kbd>[</kbd>/<kbd>]</kbd> step panels · <kbd>N</kbd> random poster · <kbd>R</kbd>
 reshuffles the sky · <kbd>E</kbd> exports · double-click a panel resets its crop.
