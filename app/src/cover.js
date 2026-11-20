@@ -114,19 +114,28 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function toRgb(hex) {
-  let h = hex.replace("#", "");
+// Parse a colour into [r,g,b]. Accepts "#abc", "#aabbcc" and the "rgb(r,g,b)"
+// strings blend() hands back, so derived colours can be alpha-blended again.
+function toRgb(color) {
+  const text = String(color).trim();
+  if (text.startsWith("rgb")) {
+    const parts = text.slice(text.indexOf("(") + 1, text.indexOf(")"))
+      .split(",")
+      .map((n) => parseFloat(n));
+    return [parts[0] || 0, parts[1] || 0, parts[2] || 0];
+  }
+  let h = text.replace("#", "");
   if (h.length === 3) h = h.split("").map((c) => c + c).join("");
   return [
-    parseInt(h.slice(0, 2), 16),
-    parseInt(h.slice(2, 4), 16),
-    parseInt(h.slice(4, 6), 16),
+    parseInt(h.slice(0, 2), 16) || 0,
+    parseInt(h.slice(2, 4), 16) || 0,
+    parseInt(h.slice(4, 6), 16) || 0,
   ];
 }
 
-function rgba(hex, a) {
-  const [r, g, b] = toRgb(hex);
-  return `rgba(${r},${g},${b},${a})`;
+function rgba(color, a) {
+  const [r, g, b] = toRgb(color);
+  return `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${a})`;
 }
 
 // Linear blend between two hex colours, returned as a css rgb() string.
