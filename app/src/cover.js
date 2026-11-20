@@ -3,10 +3,13 @@
 // panels with drop shadows, colour grading, extruded neon lettering, badges.
 // No Rockstar assets, no external images — system font stacks only.
 //
-// v4 improvement pass: a halation pass sweeps two soft warm radial streaks in
-// from the TOP CORNERS (not just the top-left), two of the smallest panels get
-// a tilted rounded sticker chip carrying a palm glyph, and the whole grade is
-// a touch warmer because the sky's hot stop now gets an extra alpha boost.
+// v4: a halation pass sweeps two soft warm radial streaks in from the TOP
+// CORNERS (not just the top-left), two of the smallest panels get a tilted
+// rounded sticker chip carrying a palm glyph, and the whole grade is a touch
+// warmer because the sky's hot stop now gets an extra alpha boost.
+// v5: a subtle vignette overlay joins the render pipeline as an option —
+// controlled per-template (template.vignette) and per-render (state.vignette)
+// — and the Wide template opts in to deepen its edges around the panel grid.
 
 import { FONT_DISPLAY, FONT_BODY, WEIGHT, defaultFontStack } from "./fonts.js";
 export { defaultFontStack };
@@ -41,7 +44,7 @@ export const TEMPLATES = {
     { x:.740, y:.325, w:.215, h:.275, tilt:1.5 },
     { x:.500, y:.625, w:.455, h:.220, tilt:-1.0 },
   ]},
-  widescreen: { name: "Wide", sizes: [1920,1080], panels: [
+  widescreen: { name: "Wide", vignette: true, sizes: [1920,1080], panels: [
     { x:.035, y:.070, w:.410, h:.610, tilt:-1.2, star:true },
     { x:.470, y:.070, w:.300, h:.330, tilt:1.0 },
     { x:.790, y:.070, w:.175, h:.330, tilt:-1.0 },
@@ -477,6 +480,30 @@ function finishGrade(ctx, W, H, pal, rand) {
   ctx.restore();
 }
 
+// ---------- v5: vignette overlay option ----------
+// A second, gentler vignette layered over the finished poster — rounder and
+// softer than the base grade's corner falloff. Drawn with source-over dark
+// ramps (no exotic blend modes — some canvas backends silently ignore
+// multiply) tinted toward the palette deep colour so the darkening never goes
+// muddy grey. Off by default; a
+// template opts in via its `vignette` flag and a render can override with
+// state.vignette (true/false, or a number for a custom strength).
+function vignetteOverlay(ctx, W, H, pal, strength = .22) {
+  const s = Math.min(1, Math.max(0, strength));
+  if (s <= 0) return;
+  ctx.save();
+  const vg = ctx.createRadialGradient(
+    W / 2, H / 2, Math.min(W, H) * .42,
+    W / 2, H / 2, Math.hypot(W, H) * .58,
+  );
+  vg.addColorStop(0, rgba(pal.deep, 0));
+  vg.addColorStop(.62, rgba(pal.deep, s * .45));
+  vg.addColorStop(1, rgba(pal.deep, s));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
 // ---------- v4: sticker chip accent ----------
 // A small tilted rounded chip with a palm glyph, pinned to the top-right
 // corner of two of the smaller panels — a trinket like a travel sticker. The
@@ -788,6 +815,16 @@ export async function renderCover(canvas, state) {
   // --- unify: light-leak halation, vignette, bloom, grain over everything ---
   lightLeakPass(ctx, W, H, pal, rand);
   finishGrade(ctx, W, H, pal, rand);
+  // v5: optional subtle vignette overlay — template opt-in (Wide), with a
+  // per-render override: state.vignette === false disables, true enables at
+  // the default strength, and a number sets the strength directly.
+  {
+    let vig = tpl.vignette ? .22 : 0;
+    if (state.vignette === false) vig = 0;
+    else if (typeof state.vignette === "number") vig = state.vignette;
+    else if (state.vignette === true) vig = .22;
+    if (vig > 0) vignetteOverlay(ctx, W, H, pal, vig);
+  }
 }
 
 export function exportPNG(canvas) {

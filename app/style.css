@@ -2,6 +2,9 @@
   --bg: #160820;
   --panel: #221033;
   --edge: #3d1d55;
+  /* stronger border tone — used where a panel edge must read against the
+     dark background (controls frame, preview ring) instead of the soft --edge */
+  --edge-strong: #5c2f85;
   --text: #f3e6ff;
   --dim: #b695d6;
   --accent: #ff2fb3;
@@ -45,7 +48,7 @@ body {
   height: auto;
   display: block;
   border-radius: 6px;
-  box-shadow: 0 12px 40px rgba(0,0,0,.55), 0 0 0 1px var(--edge);
+  box-shadow: 0 12px 40px rgba(0,0,0,.55), 0 0 0 1px var(--edge-strong);
   cursor: grab;
   touch-action: none;
   transition: box-shadow .2s;
@@ -71,7 +74,7 @@ body {
 
 .controls {
   background: var(--panel);
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   border-radius: 10px;
   padding: 14px 16px 18px;
   max-height: calc(100vh - 90px);

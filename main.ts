@@ -2,7 +2,8 @@
 //
 // What this file does, in order:
 //   1. copy the app/ tree (the whole cover-art studio: index.html, style.css,
-//      the ES modules in src/, the OFL fonts and the two sample photos) into
+//      the ES modules in src/ and the two sample photos — no bundled fonts,
+//      the app renders with system font stacks only) into
 //      the output directory;
 //   2. copy screenshots/ beside it, if the directory exists — the grader reads
 //      the four preview JPGs from there;
