@@ -40,6 +40,19 @@ export function palette(name) {
   return PALETTES[name] || PALETTES.sunset;
 }
 
+// -------------------------------------------------------- custom export sizes
+// Beside the three preset keys in SIZES, any "W x H" / "WxH" string (e.g.
+// "1000x1500" for a 2:3 print, "1440x900" for a desktop wall) is accepted and
+// clamped to a sane poster range, so the export shape is fully configurable.
+
+export function resolveSize(size) {
+  if (SIZES[size]) return SIZES[size];
+  const m = typeof size === "string" && size.match(/^(\d{2,5})\s*x\s*(\d{2,5})$/i);
+  if (!m) return SIZES["1920 x 1080"];
+  const clamp = (v) => Math.max(240, Math.min(4096, Math.round(v)));
+  return [clamp(+m[1]), clamp(+m[2])];
+}
+
 // ------------------------------------------------------------- templates
 // Panel rects are unit coordinates on the finished canvas. The first panel of
 // each template is the dominant one (star: true) and carries the wanted stars.
@@ -1224,7 +1237,7 @@ function panelFills(pal) {
 // state: { title, subtitle, tagline, quote, stars, palette, seed, size,
 //          template, photos: [{ img, zoom, ox, oy, label, time }] }
 export async function renderCover(canvas, state) {
-  const [W, H] = SIZES[state.size] || SIZES["1920 x 1080"];
+  const [W, H] = resolveSize(state.size);
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d");
