@@ -463,7 +463,8 @@ window.__vs = {
     else if (shot === "cover") {
       let tb = null, td = Infinity;
       for (const [key, tpl] of Object.entries(TEMPLATES)) {
-        const d = Math.abs(tpl.sizes[0] / tpl.sizes[1] - tw / th);
+        const [pw, ph2] = tpl.aspect ? [tpl.aspect, 1] : resolveSize(state.size);
+        const d = Math.abs(pw / ph2 - tw / th);
         if (d < td) { td = d; tb = key; }
       }
       if (tb) state.template = tb;
@@ -473,10 +474,12 @@ window.__vs = {
   }
   document.documentElement.classList.add(`shot-${shot}`);
   await window.__vs.loadURL(0, `samples/${photo}.jpg`);
+  if (state.photos[0]) { state.photos[0].zoom = 1.1; state.photos[0].oy = -0.06; }
   for (let i = 1; i < panelCount(); i++) {
     const used = state.photos.slice(0, i).map((p) => p.src || "").filter(Boolean);
     const prev = used.length ? used[used.length - 1] : "";
     await window.__vs.loadURL(i, `samples/${nextSample(used, prev)}`);
+    if (state.photos[i]) state.photos[i].zoom = 1.45; // fill tall panels tighter
   }
   await window.__vs.render();
   document.title = "ready";

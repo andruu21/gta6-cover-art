@@ -592,16 +592,7 @@ function drawStickerChip(ctx, x, y, text, color, ink, rng, angle = null, scale =
 // Panel accent kit: torn paper mat, neon frame stroke, sticker chips, tape
 // tabs and a cast-role tag.
 function drawFrameAccents(ctx, fx, fy, fw, fh, pal, rng, panel, i, k) {
-  // paper mat behind the photo, torn at the bottom
-  const mat = 10 * k;
-  ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,0.45)";
-  ctx.shadowBlur = 18 * k;
-  ctx.shadowOffsetY = 6 * k;
-  tornEdgePath(ctx, fx - mat, fy - mat, fw + mat * 2, fh + mat * 2, rng, "bottom");
-  ctx.fillStyle = mixColor(pal.paper, "#ffffff", 0.82);
-  ctx.fill();
-  ctx.restore();
+  // (the torn paper mat is painted in the panel mat pass, before photos)
 
   ctx.save();
   ctx.translate(fx + fw / 2, fy + fh / 2);
@@ -924,16 +915,31 @@ export async function renderCover(canvas, state) {
   const bandY = h - bandH;
   drawBannerBand(ctx, 0, bandY, w, bandH, pal, rng);
 
-  // 4. photo panels
+  // 4. photo panels — mats first, then photos, then accents, so torn paper
+  // never covers a loaded bitmap
   const panels = tpl.panels;
   const photos = Array.isArray(state.photos) ? state.photos : [];
-  panels.forEach((p, i) => {
-    const fx = p.x * w;
-    const fy = p.y * h;
-    const fw = p.w * w;
-    const fh = p.h * h;
-    const ph = photos[i] || {};
 
+  const panelRect = (p) => [p.x * w, p.y * h, p.w * w, p.h * h];
+
+  // mats (paper + torn edge) behind everything
+  panels.forEach((p, i) => {
+    const [fx, fy, fw, fh] = panelRect(p);
+    const mat = 10 * k;
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 18 * k;
+    ctx.shadowOffsetY = 6 * k;
+    tornEdgePath(ctx, fx - mat, fy - mat, fw + mat * 2, fh + mat * 2, rng, "bottom");
+    ctx.fillStyle = mixColor(pal.paper, "#ffffff", 0.82);
+    ctx.fill();
+    ctx.restore();
+  });
+
+  // photos / procedural fills
+  panels.forEach((p, i) => {
+    const [fx, fy, fw, fh] = panelRect(p);
+    const ph = photos[i] || {};
     ctx.save();
     roundRectPath(ctx, fx, fy, fw, fh, 4 * k);
     ctx.clip();
@@ -946,29 +952,20 @@ export async function renderCover(canvas, state) {
       drawScene(ctx, fx, fy, fw, fh, pal, prng, i);
     }
     ctx.restore();
+  });
+
+  // accents: tilt, sticker chips, tape tabs, role tags, neon frame
+  panels.forEach((p, i) => {
+    const [fx, fy, fw, fh] = panelRect(p);
+    const ph = photos[i] || {};
     drawFrameAccents(ctx, fx, fy, fw, fh, pal, rng, ph, i, k);
   });
 
-  // redrawing pass: photos on top of the mats — two loops so torn paper never
-  // covers a loaded bitmap. Accents (chips, tags) still paint after photos.
+  // panel zoom defaults: wide hero fills more of the frame
   panels.forEach((p, i) => {
-    const ph = photos[i] || {};
-    if (!ph.img) return;
-    const fx = p.x * w, fy = p.y * h, fw = p.w * w, fh = p.h * h;
-    ctx.save();
-    roundRectPath(ctx, fx, fy, fw, fh, 4 * k);
-    ctx.clip();
-    drawPhoto(ctx, ph.img, fx, fy, fw, fh, ph.zoom, ph.ox, ph.oy);
-    gradePanel(ctx, fx, fy, fw, fh, pal, rng, i);
-    ctx.restore();
+    const ph = photos[i];
+    if (ph && !ph.zoom) ph.zoom = 1.35;
   });
-  panels.forEach((p, i) => {
-    const ph = photos[i] || {};
-    const fx = p.x * w, fy = p.y * h, fw = p.w * w, fh = p.h * h;
-    drawFrameAccents(ctx, fx, fy, fw, fh, pal, rng, ph, i, k);
-  });
-
-  // 5. title lettering inside the band
   const titleSize = drawTitle(ctx, w / 2, bandY + bandH * 0.4, w * 0.86, state.title, pal, k);
   const titleBaseline = bandY + bandH * 0.4;
 
