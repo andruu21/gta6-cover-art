@@ -40,6 +40,82 @@ export function palette(name) {
   return PALETTES[name] || PALETTES.sunset;
 }
 
+// ------------------------------------------------------------- palette variants
+// Each base palette can be asked for a named variant — "midnight" (darkened,
+// moody grade), "neon" (pushed saturation on hot/neon), "bleach" (washed-out,
+// film-faded), "chrome" (steel-teal duotone) — or a numeric seed N that
+// deterministically hue-shifts the base so one palette yields a whole family
+// of related looks (e.g. "sunset#3").
+
+const hexToRgb = (hex) => {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+const rgbToHex = ([r, g, b]) =>
+  "#" + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join("");
+
+function hueRotate(rgb, deg) {
+  const [r, g, b] = rgb.map((v) => v / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let h = 0, s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > .5 ? d / (2 - max - min) : d / (max + min);
+    h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h /= 6;
+  }
+  h = (h + deg / 360 + 1) % 1;
+  const hue2rgb = (p, q, t) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  if (!s) return [l * 255, l * 255, l * 255];
+  const q = l < .5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+  return [hue2rgb(p, q, h + 1 / 3) * 255, hue2rgb(p, q, h) * 255, hue2rgb(p, q, h - 1 / 3) * 255];
+}
+
+const VARIANT_TWEAKS = {
+  midnight: { lum: .72, sat: .9 },
+  neon: { lum: 1, sat: 1.35, boost: ["hot", "neon"] },
+  bleach: { lum: 1.22, sat: .55 },
+  chrome: { sat: .45, hue: 165 },
+};
+
+export function paletteVariant(name, variant) {
+  const base = palette(name);
+  if (variant == null || variant === "default") return base;
+  const out = { ...base };
+  if (typeof variant === "string" && variant.startsWith("#")) {
+    const shift = (parseInt(variant.slice(1), 10) % 12) * 30; // deterministic 0..330
+    for (const key of ["top", "mid", "hot", "glow", "neon", "deep"]) {
+      out[key] = rgbToHex(hueRotate(hexToRgb(base[key]), shift));
+    }
+    out.name = `${base.name} · ${variant}`;
+    return out;
+  }
+  const t = VARIANT_TWEAKS[variant];
+  if (!t) return base;
+  for (const key of ["top", "mid", "hot", "glow", "neon", "deep"]) {
+    let rgb = hexToRgb(base[key]);
+    if (t.hue) rgb = hueRotate(rgb, t.hue);
+    rgb = rgb.map((v) => v * (t.lum ?? 1));
+    const avg = (rgb[0] + rgb[1] + rgb[2]) / 3;
+    rgb = rgb.map((v) => Math.max(0, Math.min(255, avg + (v - avg) * (t.sat ?? 1))));
+    out[key] = rgbToHex(rgb);
+  }
+  if (t.boost) {
+    for (const key of t.boost) {
+      out[key] = rgbToHex(hexToRgb(out[key]).map((v) => Math.min(255, v * 1.12)));
+    }
+  }
+  out.name = `${base.name} · ${variant}`;
+  return out;
+}
+
 // -------------------------------------------------------- custom export sizes
 // Beside the three preset keys in SIZES, any "W x H" / "WxH" string (e.g.
 // "1000x1500" for a 2:3 print, "1440x900" for a desktop wall) is accepted and
@@ -1241,7 +1317,10 @@ export async function renderCover(canvas, state) {
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d");
-  const pal = palette(state.palette);
+  // "sunset", "sunset#3" (seeded hue-shift family) or "sunset/neon" (named
+  // variant) all resolve through paletteVariant; plain names stay untouched.
+  const [palName, palVariant] = String(state.palette || "sunset").split(/[/#]/);
+  const pal = palVariant ? paletteVariant(palName, palVariant.startsWith("#") ? palVariant : palVariant) : palette(palName);
   const rand = seedRandom(state.seed || 42);
 
   // Backdrop.
