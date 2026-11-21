@@ -1,195 +1,144 @@
-// Grader harness for the Vice State cover-art app.
+// main.ts — headless screenshot harness for the Vice State cover-art studio.
 //
-// Serves app/ on a loopback port (stdlib only), drives it with headless
-// Chromium via Playwright, renders the four deliverable screenshots into
-// screenshots/ (long side <= 1280, short side >= 480), and writes
-// dossier.json describing what was produced. Exit code 0 means every
-// screenshot was rendered inside the size and file-size budgets.
+// Run with: node --experimental-strip-types main.ts
 //
-// Usage: node --experimental-strip-types main.ts
-//   MAKEFUN_OUTPUT_DIR=/tmp/cav8 node --experimental-strip-types main.ts
-//     -> screenshots and dossier.json go to /tmp/cav8 instead.
+// Serves app/ over a local HTTP server, drives it with Playwright's Chromium,
+// captures the four deliverable screenshots into screenshots/, validates each
+// one against the size and byte budget, and writes screenshots/dossier.json.
 
-import { createReadStream, statSync, mkdirSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
-import { createServer } from "node:http";
-import { extname, join, normalize, resolve, sep } from "node:path";
+import http from "node:http";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
+import { createRequire } from "node:module";
 
-const ROOT = resolve(fileURLToPath(new URL("./app", import.meta.url)));
-const OUT_DIR = resolve(process.env.MAKEFUN_OUTPUT_DIR || "screenshots");
+const require_ = createRequire(import.meta.url);
+const { chromium } = require_("playwright");
 
-const MIME: Record<string, string> = {
+const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const APP_DIR = path.join(ROOT, "app");
+const OUT_DIR = path.join(ROOT, "screenshots");
+
+const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
   ".png": "image/png",
-  ".webp": "image/webp",
   ".svg": "image/svg+xml",
-  ".woff2": "font/woff2",
-  ".ttf": "font/ttf",
-  ".json": "application/json; charset=utf-8",
+  ".json": "application/json",
 };
 
-// ---- static server -------------------------------------------------------
+// ---- static file server for app/ ------------------------------------------
 
-function serveApp(port: number): Promise<() => void> {
-  return new Promise((resolveServer) => {
-    const server = createServer((req, res) => {
-      let pathname: string;
-      try {
-        pathname = decodeURIComponent(new URL(req.url ?? "/", "http://localhost").pathname);
-      } catch {
-        res.writeHead(400).end();
+function startServer(port = 0) {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url || "/", "http://localhost");
+      let rel = decodeURIComponent(url.pathname);
+      if (rel.endsWith("/")) rel += "index.html";
+      const file = path.normalize(path.join(APP_DIR, rel));
+      if (!file.startsWith(APP_DIR)) {
+        res.writeHead(403).end("forbidden");
         return;
       }
-      if (pathname.endsWith("/")) pathname += "index.html";
-      const file = resolve(join(ROOT, normalize(pathname)));
-      if (file !== ROOT && !file.startsWith(ROOT + sep)) {
-        res.writeHead(403).end();
-        return;
-      }
-      let size = 0;
-      try {
-        size = statSync(file).size;
-      } catch {
-        res.writeHead(404).end();
-        return;
-      }
-      res.writeHead(200, {
-        "content-type": MIME[extname(file).toLowerCase()] ?? "application/octet-stream",
-        "content-length": size,
-        "cache-control": "no-store",
-      });
-      createReadStream(file).pipe(res);
+      fs.readFile(file)
+        .then((data) => {
+          res.writeHead(200, { "content-type": MIME[path.extname(file)] || "application/octet-stream" });
+          res.end(data);
+        })
+        .catch(() => {
+          res.writeHead(404).end("not found");
+        });
     });
-    server.listen(port, "127.0.0.1", () => resolveServer(() => server.close()));
+    server.on("error", reject);
+    server.listen(port, "127.0.0.1", () => resolve(server));
   });
 }
 
-// ---- shot plan -----------------------------------------------------------
+// ---- shot list -------------------------------------------------------------
 
-// Long side <= 1280, short side >= 480 for every deliverable.
 const SHOTS = [
-  { name: "1-cover-wide.jpg",     query: "?shot=cover&photo=pier&caption=Sunset%20Heist&size=1920x1080", w: 1280, h: 720 },
-  { name: "2-editor.jpg",         query: "?shot=editor&photo=boulevard&caption=Boulevard%20Queen",       w: 1280, h: 720, editor: true },
-  { name: "3-cover-portrait.jpg", query: "?shot=cover&photo=boulevard&caption=Boulevard%20Queen&size=1080x1350", w: 1024, h: 1280 },
-  { name: "4-cover-square.jpg",   query: "?shot=cover&photo=pier&caption=Sunset%20Heist&size=1080x1080", w: 1080, h: 1080 },
+  { name: "1-cover-wide.jpg", w: 1280, h: 720, query: "?shot=cover&photo=pier&caption=Sunset%20Heist&size=1280x720" },
+  { name: "2-editor.jpg", w: 1280, h: 720, query: "?shot=editor&photo=boulevard&caption=Boulevard%20Queen" },
+  { name: "3-cover-portrait.jpg", w: 1024, h: 1280, query: "?shot=cover&photo=boulevard&caption=Boulevard%20Queen&size=1024x1280" },
+  { name: "4-cover-square.jpg", w: 1080, h: 1080, query: "?shot=cover&photo=pier&caption=Vice%20State&size=1080x1080" },
 ];
 
-const MAX_DIM = 1280;
+const MAX_BYTES = 262144;
 const MIN_DIM = 480;
-const MAX_BYTES = 256 * 1024;
+const MAX_DIM = 1280;
 
-interface ShotResult {
-  name: string;
-  width: number;
-  height: number;
-  bytes: number;
-}
+// ---- main -------------------------------------------------------------------
 
-async function capture(page: any, base: string, s: any): Promise<ShotResult> {
-  await page.goto(base + s.query, { waitUntil: "networkidle" });
-  // main.js stamps document.title = "ready" once the canvas is final.
-  await page.waitForFunction(() => document.title === "ready", null, { timeout: 30000 });
-  await page.waitForTimeout(400);
+async function main() {
+  await fs.mkdir(OUT_DIR, { recursive: true });
+  const server = await startServer();
+  const addr = server.address();
+  const base = `http://127.0.0.1:${addr.port}/index.html`;
 
-  let buf: Buffer;
-  if (s.editor) {
-    buf = await page.screenshot({
-      type: "jpeg",
-      quality: 82,
-      clip: { x: 0, y: 0, width: Math.min(s.w, 1280), height: Math.min(s.h, 720) },
-    });
-  } else {
-    // Contain-fit the rendered poster canvas into the target box so nothing
-    // is cropped; pillarbox on the app's backdrop colour if aspects differ.
-    const dataUrl: string = await page.evaluate(([w, h]: number[]) => {
-      const src = document.getElementById("preview") as HTMLCanvasElement;
-      const scale = Math.min(w / src.width, h / src.height);
-      const dw = Math.round(src.width * scale);
-      const dh = Math.round(src.height * scale);
-      const c = document.createElement("canvas");
-      c.width = w;
-      c.height = h;
-      const ctx = c.getContext("2d")!;
-      ctx.fillStyle = "#12002e";
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(src, Math.round((w - dw) / 2), Math.round((h - dh) / 2), dw, dh);
-      return c.toDataURL("image/jpeg", 0.86);
-    }, [s.w, s.h]);
-    buf = Buffer.from(dataUrl.split(",")[1]!, "base64");
-  }
+  const browser = await chromium.launch({ args: ["--no-sandbox", "--force-device-scale-factor=1"] });
+  const shots = [];
+  let ok = true;
 
-  const file = join(OUT_DIR, s.name);
-  writeFileSync(file, buf);
-  return { name: s.name, width: s.w, height: s.h, bytes: buf.length };
-}
-
-// ---- main ----------------------------------------------------------------
-
-const port = 8300 + (process.pid % 400);
-const stopServer = await serveApp(port);
-const base = `http://127.0.0.1:${port}`;
-
-mkdirSync(OUT_DIR, { recursive: true });
-
-// Clear the output dir of stale images so it holds exactly the deliverables.
-for (const f of readdirSync(OUT_DIR)) {
-  if (f.endsWith(".jpg")) {
-    unlinkSync(join(OUT_DIR, f));
-  }
-}
-
-const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-
-const results: ShotResult[] = [];
-const problems: string[] = [];
-
-for (const s of SHOTS) {
   try {
-    const r = await capture(page, base, s);
-    const max = Math.max(r.width, r.height);
-    const min = Math.min(r.width, r.height);
-    if (max > MAX_DIM || min < MIN_DIM) {
-      problems.push(`${s.name}: ${r.width}x${r.height} outside [${MIN_DIM}, ${MAX_DIM}] bounds`);
+    for (const shot of SHOTS) {
+      const page = await browser.newPage({ viewport: { width: shot.w, height: shot.h } });
+      try {
+        await page.goto(base + shot.query, { waitUntil: "load" });
+        // The page sets document.title = "ready" once the canvas is final.
+        await page.waitForFunction(() => document.title === "ready", null, { timeout: 20000 });
+        await page.waitForTimeout(250); // let the finishing grain settle
+        const outPath = path.join(OUT_DIR, shot.name);
+        await page.screenshot({ path: outPath, type: "jpeg", quality: 82, clip: { x: 0, y: 0, width: shot.w, height: shot.h } });
+        const bytes = (await fs.stat(outPath)).size;
+        const width = shot.w;
+        const height = shot.h;
+        shots.push({ name: shot.name, width, height, bytes });
+
+        const problems = [];
+        if (width > MAX_DIM || height > MAX_DIM) problems.push(`${shot.name}: dimensions exceed ${MAX_DIM}px`);
+        if (width < MIN_DIM || height < MIN_DIM) problems.push(`${shot.name}: dimensions below ${MIN_DIM}px`);
+        if (bytes > MAX_BYTES) problems.push(`${shot.name}: ${bytes} bytes exceeds budget of ${MAX_BYTES}`);
+        if (bytes <= 0) problems.push(`${shot.name}: empty file`);
+        if (problems.length) {
+          ok = false;
+          for (const p of problems) console.error(`  FAIL ${p}`);
+        } else {
+          console.log(`  ok   ${shot.name}  ${width}x${height}  ${bytes} bytes`);
+        }
+      } finally {
+        await page.close();
+      }
     }
-    if (r.bytes > MAX_BYTES) {
-      problems.push(`${s.name}: ${(r.bytes / 1024).toFixed(0)} KiB exceeds 256 KiB budget`);
-    }
-    results.push(r);
-    console.log(`rendered ${s.name} ${r.width}x${r.height} ${(r.bytes / 1024).toFixed(0)} KiB`);
-  } catch (err) {
-    problems.push(`${s.name}: ${(err as Error).message}`);
+  } finally {
+    await browser.close();
+    server.close();
   }
+
+  const dossier = {
+    generatedAt: new Date().toISOString(),
+    app: "Vice State cover-art studio",
+    harness: "main.ts (node --experimental-strip-types + playwright chromium)",
+    outputDir: OUT_DIR,
+    shots,
+    checks: {
+      allRendered: shots.length === SHOTS.length,
+      sizeBoundsOk: shots.every((s) => s.width <= MAX_DIM && s.height <= MAX_DIM && s.width >= MIN_DIM && s.height >= MIN_DIM),
+      byteBudgetOk: shots.every((s) => s.bytes > 0 && s.bytes <= MAX_BYTES),
+      problems: ok ? [] : ["one or more shots failed validation — see stderr above"],
+    },
+  };
+  await fs.writeFile(path.join(OUT_DIR, "dossier.json"), JSON.stringify(dossier, null, 2) + "\n");
+
+  if (!ok || shots.length !== SHOTS.length) {
+    console.error("screenshot harness: checks FAILED");
+    process.exit(1);
+  }
+  console.log("screenshot harness: all checks passed");
 }
 
-await browser.close();
-stopServer();
-
-const dossier = {
-  generatedAt: new Date().toISOString(),
-  app: "Vice State cover-art studio",
-  harness: "main.ts (node --experimental-strip-types + playwright chromium)",
-  outputDir: OUT_DIR,
-  shots: results,
-  checks: {
-    allRendered: results.length === SHOTS.length,
-    sizeBoundsOk: problems.every((p) => !p.includes("outside")),
-    byteBudgetOk: problems.every((p) => !p.includes("exceeds")),
-    problems,
-  },
-};
-
-writeFileSync(join(OUT_DIR, "dossier.json"), JSON.stringify(dossier, null, 2) + "\n");
-console.log(`dossier.json written to ${join(OUT_DIR, "dossier.json")}`);
-
-if (problems.length) {
-  for (const p of problems) console.error("FAIL:", p);
+main().catch((err) => {
+  console.error(err);
   process.exit(1);
-}
-console.log("all checks passed");
-process.exit(0);
+});
