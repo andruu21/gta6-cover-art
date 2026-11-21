@@ -2,17 +2,24 @@
 //
 // Owns one plain `state` object and hands it to the renderer in cover.js.
 // Every control mutates state and calls schedule(), which re-renders on the
-// next animation frame and autosaves. Photo bitmaps live in memory only —
-// localStorage keeps captions, look and crops, and panels fall back to their
-// procedural sky art after a reload until a photo is re-picked.
+// next animation frame and autosaves to localStorage. Photo bitmaps stay in
+// memory only — captions, look and crops survive a reload, and panels fall
+// back to their procedural sky art until a photo is re-picked.
 
 import { renderCover, exportPNG, TEMPLATES, SIZES, PALETTE_NAMES } from "./cover.js";
 
 const STORE_KEY = "vice-state-poster-v4";
 
-const DEFAULT_ROLES = [
-  "Protagonist", "Partner", "Antagonist", "Ally", "Wildcard", "Ally",
-];
+const DEFAULT_ROLES = ["Protagonist", "Partner", "Antagonist", "Ally", "Wildcard", "Wildcard"];
+const SAMPLES = ["boulevard.jpg", "pier.jpg"];
+const SAMPLE_META = {
+  "pier.jpg": { label: "Vice Pier", time: "BLUE HOUR" },
+  "boulevard.jpg": { label: "Ocean Drive", time: "GOLDEN HOUR" },
+};
+const RANDOM_TITLES = ["VICE STATE", "NEON TIDE", "PALM FEVER", "GOLD COAST", "LAST EXIT", "MIDNIGHT RUN", "PINK HORIZON"];
+const RANDOM_SUBTITLES = ["Neon Tide", "Static Bloom", "Coral Static", "Afterglow", "Velvet Hours"];
+
+// ---------- state ----------
 
 const state = {
   title: "VICE STATE",
@@ -27,13 +34,13 @@ const state = {
   photos: [], // per panel: {img|null, src, zoom, ox, oy, label, time, seed, role}
 };
 
+let activePanel = 0;
+let toastTimer = 0;
+
 const canvas = document.getElementById("preview");
+const panelStrip = document.getElementById("panel-strip");
 const fileInput = document.getElementById("file-input");
 const toastEl = document.getElementById("toast");
-const panelStrip = document.getElementById("panel-strip");
-
-let activePanel = 0;
-let toastTimer = null;
 
 // ---------- persistence ----------
 
@@ -117,6 +124,25 @@ function loadImage(url) {
   });
 }
 
+// Pick the least-used sample so far, ties broken away from the previous
+// panel's photo, so no sample piles up in adjacent or stacked panels.
+function nextSample(usedNames, prevSrc) {
+  const count = (name) => usedNames.filter((s) => s.endsWith(name)).length;
+  const samples = [...SAMPLES];
+  samples.sort((a, b) => count(a) - count(b)
+    || (prevSrc && prevSrc.endsWith(a) ? 1 : prevSrc && prevSrc.endsWith(b) ? -1 : 0));
+  return samples[0];
+}
+
+function makePhoto(i, img, url, overrides = {}) {
+  return {
+    img, src: url, zoom: 1, ox: 0, oy: 0, seed: i + 3,
+    label: overrides.label ?? "",
+    time: overrides.time ?? "",
+    role: overrides.role ?? DEFAULT_ROLES[i] ?? "",
+  };
+}
+
 // ---------- panel strip ----------
 
 function buildPanelStrip() {
@@ -179,6 +205,11 @@ function syncZoomSlider(i) {
   if (slider) slider.value = String(state.photos[i]?.zoom ?? 1);
 }
 
+function setActivePanel(i) {
+  activePanel = Math.min(panelCount() - 1, Math.max(0, i));
+  buildPanelStrip();
+}
+
 // Reset a panel's crop — double-click on the canvas or the ⟲ button.
 function resetPanelCrop(i) {
   const ph = state.photos[i];
@@ -192,8 +223,7 @@ function resetPanelCrop(i) {
 // ---------- photo loading ----------
 
 function pickFile(i) {
-  activePanel = i;
-  buildPanelStrip();
+  setActivePanel(i);
   fileInput.onchange = () => {
     const f = fileInput.files[0];
     if (f) loadPhotoFile(f, i);
@@ -206,12 +236,12 @@ function loadPhotoFile(file, i) {
   const url = URL.createObjectURL(file);
   loadImage(url).then((img) => {
     ensurePhotos(i + 1);
-    state.photos[i] = {
-      img, src: url, zoom: 1, ox: 0, oy: 0, seed: i + 3,
-      label: state.photos[i]?.label || file.name.replace(/\.[^.]+$/, ""),
-      time: state.photos[i]?.time || "",
-      role: state.photos[i]?.role || DEFAULT_ROLES[i] || "",
-    };
+    const prev = state.photos[i] || {};
+    state.photos[i] = makePhoto(i, img, url, {
+      label: prev.label || file.name.replace(/\.[^.]+$/, ""),
+      time: prev.time || "",
+      role: prev.role || DEFAULT_ROLES[i] || "",
+    });
     buildPanelStrip();
     schedule();
     showToast(`Photo loaded into panel ${i + 1}`);
@@ -222,24 +252,16 @@ async function loadSamples() {
   ensurePhotos(panelCount());
   for (let i = 0; i < panelCount(); i++) {
     if (state.photos[i].img) continue;
-    // Distribute samples across panels: pick the least-used sample so far
-    // (ties broken away from the previous panel's photo), so no sample piles
-    // up in several panels when both are free.
-    const used = state.photos.slice(0, i)
-      .map((p) => p.src || "").filter(Boolean);
-    const count = (name) => used.filter((s) => s.endsWith(name)).length;
+    const used = state.photos.slice(0, i).map((p) => p.src || "").filter(Boolean);
     const prev = i > 0 ? used[i - 1] : null;
-    const samples = ["boulevard.jpg", "pier.jpg"];
-    samples.sort((a, b) => count(a) - count(b)
-      || (prev && prev.endsWith(a) ? 1 : prev && prev.endsWith(b) ? -1 : 0));
-    const url = `samples/${samples[0]}`;
+    const url = `samples/${nextSample(used, prev)}`;
     const img = await loadImage(url);
-    state.photos[i] = {
-      img, src: url, zoom: 1 + (i % 3) * 0.15, ox: 0, oy: 0, seed: i + 3,
-      label: state.photos[i].label || (url.endsWith("pier.jpg") ? "Vice Pier" : "Ocean Drive"),
-      time: state.photos[i].time || (url.endsWith("pier.jpg") ? "BLUE HOUR" : "GOLDEN HOUR"),
-      role: state.photos[i].role || DEFAULT_ROLES[i] || "",
-    };
+    const meta = SAMPLE_META[url.split("/").pop()] || {};
+    state.photos[i] = makePhoto(i, img, url, {
+      label: state.photos[i].label || meta.label || "",
+      time: state.photos[i].time || meta.time || "",
+      zoom: 1 + (i % 3) * 0.15,
+    });
   }
   buildPanelStrip();
   schedule();
@@ -300,7 +322,8 @@ document.getElementById("palette").addEventListener("change", (e) => {
 });
 document.getElementById("template").addEventListener("change", (e) => {
   state.template = e.target.value;
-  buildPanelStrip();
+  ensurePhotos(panelCount());
+  setActivePanel(Math.min(activePanel, panelCount() - 1));
   schedule();
 });
 document.getElementById("size").addEventListener("change", (e) => {
@@ -318,9 +341,6 @@ function reshuffleSky() {
 
 // ---------- random poster ----------
 
-const RANDOM_TITLES = ["VICE STATE", "NEON TIDE", "PALM FEVER", "GOLD COAST", "LAST EXIT", "MIDNIGHT RUN", "PINK HORIZON"];
-const RANDOM_SUBTITLES = ["Neon Tide", "Static Bloom", "Coral Static", "Afterglow", "Velvet Hours"];
-
 // One code path shared by both Random poster buttons and the N key: shuffle
 // palette, template, seed, title and subtitle, never repeating the current
 // combination when there is an alternative.
@@ -337,8 +357,8 @@ function randomize() {
   state.title = pick(RANDOM_TITLES, state.title);
   state.subtitle = pick(RANDOM_SUBTITLES, state.subtitle);
   ensurePhotos(panelCount());
+  setActivePanel(Math.min(activePanel, panelCount() - 1));
   reflectStateToControls();
-  buildPanelStrip();
   schedule();
   showToast(`Random poster · ${state.palette} · ${TEMPLATES[state.template].name}`);
 }
@@ -367,11 +387,9 @@ window.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
   const n = panelCount();
   if (e.key === "[") {
-    activePanel = (activePanel + n - 1) % n;
-    buildPanelStrip();
+    setActivePanel((activePanel + n - 1) % n);
   } else if (e.key === "]") {
-    activePanel = (activePanel + 1) % n;
-    buildPanelStrip();
+    setActivePanel((activePanel + 1) % n);
   } else if (e.key.toLowerCase() === "r") {
     reshuffleSky();
   } else if (e.key.toLowerCase() === "n") {
@@ -384,6 +402,7 @@ window.addEventListener("keydown", (e) => {
 // ---------- boot ----------
 
 if (restoreState()) reflectStateToControls();
+ensurePhotos(panelCount());
 buildPanelStrip();
 schedule();
 
@@ -395,12 +414,12 @@ window.__vs = {
   async loadURL(i, url) {
     const img = await loadImage(url);
     ensurePhotos(i + 1);
-    state.photos[i] = {
-      img, src: url, zoom: 1, ox: 0, oy: 0, seed: i + 3,
-      label: state.photos[i]?.label || "",
-      time: state.photos[i]?.time || "",
-      role: state.photos[i]?.role || DEFAULT_ROLES[i] || "",
-    };
+    const prev = state.photos[i] || {};
+    state.photos[i] = makePhoto(i, img, url, {
+      label: prev.label || "",
+      time: prev.time || "",
+      role: prev.role || DEFAULT_ROLES[i] || "",
+    });
     buildPanelStrip();
     await renderCover(canvas, state);
     saveState();
@@ -450,21 +469,14 @@ window.__vs = {
       if (tb) state.template = tb;
     }
     reflectStateToControls();
-    buildPanelStrip();
+    ensurePhotos(panelCount());
   }
   document.documentElement.classList.add(`shot-${shot}`);
   await window.__vs.loadURL(0, `samples/${photo}.jpg`);
   for (let i = 1; i < panelCount(); i++) {
-    // Distribute the available samples: least-used so far wins, ties broken
-    // away from the previous panel's photo (and away from panel 0's photo on
-    // the first pick) so no sample repeats in adjacent or stacked panels.
     const used = state.photos.slice(0, i).map((p) => p.src || "").filter(Boolean);
-    const count = (name) => used.filter((s) => s.endsWith(name)).length;
     const prev = used.length ? used[used.length - 1] : "";
-    const samples = ["boulevard.jpg", "pier.jpg"];
-    samples.sort((a, b) => count(a) - count(b)
-      || (prev.endsWith(a) ? 1 : prev.endsWith(b) ? -1 : 0));
-    await window.__vs.loadURL(i, `samples/${samples[0]}`);
+    await window.__vs.loadURL(i, `samples/${nextSample(used, prev)}`);
   }
   await window.__vs.render();
   document.title = "ready";
