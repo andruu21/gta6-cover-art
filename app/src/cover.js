@@ -132,7 +132,12 @@ function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
 function lerp(a, b, t) { return a + (b - a) * t; }
 
 function hexToRgb(hex) {
-  const h = String(hex).replace("#", "");
+  const text = String(hex).trim();
+  if (text.startsWith("rgb")) {
+    const parts = text.slice(text.indexOf("(") + 1, text.indexOf(")")).split(",").map((s) => parseFloat(s));
+    return [parts[0] || 0, parts[1] || 0, parts[2] || 0];
+  }
+  const h = text.replace("#", "");
   const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
@@ -598,15 +603,10 @@ function drawFrameAccents(ctx, fx, fy, fw, fh, pal, rng, panel, i, k) {
   ctx.fill();
   ctx.restore();
 
-  // neon frame stroke
   ctx.save();
-  ctx.strokeStyle = withAlpha(pal.accent2, 0.85);
-  ctx.lineWidth = Math.max(1.5, 2.4 * k);
-  ctx.shadowColor = withAlpha(pal.accent2, 0.9);
-  ctx.shadowBlur = 10 * k;
-  roundRectPath(ctx, fx, fy, fw, fh, 3 * k);
-  ctx.stroke();
-  ctx.restore();
+  ctx.translate(fx + fw / 2, fy + fh / 2);
+  ctx.rotate(-0.012 + (i % 2) * 0.02);
+  ctx.translate(-fx - fw / 2, -fy - fh / 2);
 
   // sticker chips seeded per panel
   if (panel.time) {
@@ -649,6 +649,17 @@ function drawFrameAccents(ctx, fx, fy, fw, fh, pal, rng, panel, i, k) {
     ctx.fillText(panel.role.toUpperCase(), fx + fw - 69 * k, fy + fh - 15 * k);
     ctx.restore();
   }
+  ctx.restore();
+
+  // neon frame stroke, on top so it stays crisp after the tilt
+  ctx.save();
+  ctx.strokeStyle = withAlpha(pal.accent2, 0.85);
+  ctx.lineWidth = Math.max(1.5, 2.4 * k);
+  ctx.shadowColor = withAlpha(pal.accent2, 0.9);
+  ctx.shadowBlur = 10 * k;
+  roundRectPath(ctx, fx, fy, fw, fh, 3 * k);
+  ctx.stroke();
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
@@ -935,7 +946,25 @@ export async function renderCover(canvas, state) {
       drawScene(ctx, fx, fy, fw, fh, pal, prng, i);
     }
     ctx.restore();
+    drawFrameAccents(ctx, fx, fy, fw, fh, pal, rng, ph, i, k);
+  });
 
+  // redrawing pass: photos on top of the mats — two loops so torn paper never
+  // covers a loaded bitmap. Accents (chips, tags) still paint after photos.
+  panels.forEach((p, i) => {
+    const ph = photos[i] || {};
+    if (!ph.img) return;
+    const fx = p.x * w, fy = p.y * h, fw = p.w * w, fh = p.h * h;
+    ctx.save();
+    roundRectPath(ctx, fx, fy, fw, fh, 4 * k);
+    ctx.clip();
+    drawPhoto(ctx, ph.img, fx, fy, fw, fh, ph.zoom, ph.ox, ph.oy);
+    gradePanel(ctx, fx, fy, fw, fh, pal, rng, i);
+    ctx.restore();
+  });
+  panels.forEach((p, i) => {
+    const ph = photos[i] || {};
+    const fx = p.x * w, fy = p.y * h, fw = p.w * w, fh = p.h * h;
     drawFrameAccents(ctx, fx, fy, fw, fh, pal, rng, ph, i, k);
   });
 
@@ -955,9 +984,9 @@ export async function renderCover(canvas, state) {
     ctx.restore();
   }
 
-  // 6. review strip (quote + stars)
-  const reviewY = bandY + bandH * (state.subtitle ? 0.63 : 0.56);
-  drawReviewStrip(ctx, w / 2, reviewY, w * 0.8, state.quote, clamp(state.stars ?? 5, 0, 5), pal, k);
+  // 6. review strip (quote + stars) — floats over the sky just above the band
+  const quoteAbove = state.subtitle ? bandY - 26 * k : bandY - 12 * k;
+  drawReviewStrip(ctx, w / 2, quoteAbove, w * 0.8, state.quote, clamp(state.stars ?? 5, 0, 5), pal, k);
 
   // 7. tagline rail at the very bottom
   if (state.tagline) {
