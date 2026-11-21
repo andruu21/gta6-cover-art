@@ -1,7 +1,8 @@
 <!--
   VICE STATE — offline cover-art studio.
   Markup only: the preview canvas, caption/look controls and the panel strip.
-  Behaviour lives in src/main.js, looks in style.css.
+  Behaviour lives in src/main.js, looks in style.css, poster renderer in
+  src/cover.js.
 -->
 <!doctype html>
 <html lang="en">
@@ -10,6 +11,7 @@
 <title>Vice State — GTA-style Cover Art Maker</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Vice State: a GTA-style multi-panel cover art maker that runs fully offline — drop in your own photos, crop them on a canvas poster, and export a PNG. No uploads, no accounts.">
+<meta name="color-scheme" content="dark">
 <link rel="stylesheet" href="style.css">
 <script type="module" src="src/main.js"></script>
 </head>
@@ -25,6 +27,8 @@
         <option value="1920 x 1080" selected>1920 × 1080</option>
         <option value="1080 x 1350">1080 × 1350</option>
         <option value="1080 x 1080">1080 × 1080</option>
+        <option value="1080 x 1920">1080 × 1920</option>
+        <option value="1200 x 628">1200 × 628</option>
       </select>
     </label>
     <button id="export" class="btn primary" aria-label="Export the poster as a PNG image (shortcut: E)">Export PNG</button>
@@ -49,18 +53,22 @@
     <label class="field"><span>Colour grade</span>
       <select id="palette">
         <option value="sunset" selected>Sunset Boulevard</option>
-        <option value="dawn">Pastel Dawn</option>
-        <option value="neon">Neon Nights</option>
-        <option value="vice">Vice Cyan</option>
-        <option value="midnight">Midnight Purple</option>
+        <option value="neon">Neon Tide</option>
+        <option value="lagoon">Lagoon Drag</option>
+        <option value="chrome">Chrome Outlaw</option>
+        <option value="orchid">Orchid Fever</option>
+        <option value="ember">Ember Coast</option>
+        <option value="noir">Midnight Noir</option>
+        <option value="coral">Coral Static</option>
       </select>
     </label>
     <label class="field"><span>Panel layout</span>
       <select id="template">
-        <option value="hero" selected>Hero — 1 big + 4</option>
-        <option value="widescreen">Wide — 1 big + 5</option>
-        <option value="grid5">Mosaic — 6 panels (portrait)</option>
-        <option value="collage">Collage — 6 panels (square)</option>
+        <option value="hero" selected>Hero — one wide frame</option>
+        <option value="duo">Double Feature — 2 panels</option>
+        <option value="triptych">Triptych — 3 panels (portrait)</option>
+        <option value="collage">Collage — 4 panels (square)</option>
+        <option value="tower">Tower — 2 stacked (story)</option>
       </select>
     </label>
     <label class="field"><span>Wanted stars</span><input id="stars" type="range" min="0" max="5" value="5"></label>
