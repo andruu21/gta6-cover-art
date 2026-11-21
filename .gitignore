@@ -1,10 +1,29 @@
-# dossier build output (node main.ts with MAKEFUN_OUTPUT_DIR=out)
+# Dependencies
+node_modules/
+
+# Build / generated output
 out/
-# node tooling if used locally
-node_modules/
-# playwright harness scratch output
-/tmp-vs-shots
-*.log
-# macOS droppings from unzip/airdrop round-trips
+dist/
+build/
+
+# Grader harness output
+dossier.json
+
+# macOS
 .DS_Store
-node_modules/
+._*
+
+# Editor / OS cruft
+*.swp
+*.swo
+.idea/
+.vscode/
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local env
+.env
+.env.*
